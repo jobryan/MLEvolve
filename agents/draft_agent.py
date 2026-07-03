@@ -70,6 +70,14 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
         prompt["Memory"] = agent.experience_store.augment_memory_text(
             prompt["Memory"], query_text=str(agent.task_desc)[:4000], context_label="draft",
         )
+        try:
+            solution_guidance = agent.experience_store.get_solution_guidance(
+                str(agent.task_desc)[:4000], context_label="draft-solutions",
+            )
+            if solution_guidance:
+                prompt["Instructions"]["Reference Pipeline From a Similar Past Competition"] = [solution_guidance]
+        except Exception as e:
+            logger.warning(f"[draft] Failed to retrieve cross-run solution guidance: {e}")
     prompt["Instructions"] |= prompt_resp_fmt()
 
     prompt["Instructions"] |= {

@@ -1,16 +1,25 @@
-"""Persistent cross-run experience store (M1: episodic memory).
+"""Persistent cross-run experience store.
 
-Storage: append-only JSONL (`records.jsonl`) in a directory that outlives any
-single run. A run opens the store read-only; ingestion happens offline via
-`python -m experience.ingest` so the store contents are a pinned, hashable
-input to a run (the snapshot hash is logged with every injection).
+Mechanisms (independently switchable for the E4 mechanism ablation):
+  M1 episodic  — node-level records (records.jsonl), retrieved into draft/improve.
+  M2 lessons   — distilled claims from past runs (lessons.jsonl), same injection.
+  M2 bug book  — error-signature -> fix entries (bugbook.jsonl), injected into debug.
+  M3 solutions — top solutions from past runs (solutions.jsonl + solutions/*.py),
+                 injected into draft as a reference pipeline.
 
-Leakage guard: records from the current competition, or from any task id in
-`excluded_task_ids` (e.g. a held-out evaluation split), are dropped at index
-build time — they can never be retrieved.
+Storage is append-only JSONL in a directory that outlives any single run. A run
+opens the store read-only; ingestion happens offline (`python -m experience.ingest`,
+`python -m experience.reflect`) so the store contents are a pinned, hashable input
+to a run — the snapshot hash covers every store file and is logged with every
+injection.
 
-Retrieval: hybrid BM25+vector via the existing agents.memory retriever when an
-embedding model path is configured; otherwise a dependency-free built-in BM25.
+Leakage guard: entries from the current competition, or from any task id in
+`excluded_task_ids` (e.g. the task's own fold), are dropped at index build time
+across ALL mechanisms — they can never be retrieved.
+
+Retrieval: the episodic corpus uses the existing hybrid BM25+vector retriever when
+an embedding model is configured (dependency-free built-in BM25 otherwise); the
+small lessons/bugbook/solutions corpora always use the built-in BM25.
 """
 
 import hashlib
@@ -21,11 +30,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .entries import BugBookEntry, Lesson, SolutionEntry
 from .record import ExperienceRecord
 
 logger = logging.getLogger("MLEvolve")
 
 RECORDS_FILENAME = "records.jsonl"
+LESSONS_FILENAME = "lessons.jsonl"
+BUGBOOK_FILENAME = "bugbook.jsonl"
+SOLUTIONS_FILENAME = "solutions.jsonl"
+SOLUTIONS_DIRNAME = "solutions"
 
 
 class _Bm25Only:
@@ -78,6 +92,10 @@ class ExperienceStore:
         injection_log_path: Optional[Path] = None,
         top_k: int = 2,
         min_score: float = 0.0,
+        use_episodic: bool = True,
+        use_lessons: bool = True,
+        use_bugbook: bool = True,
+        use_solutions: bool = True,
     ):
         if not store_dir:
             raise ValueError("experience.store_dir must be set when the experience store is enabled")
@@ -88,32 +106,55 @@ class ExperienceStore:
         self.injection_log_path = Path(injection_log_path) if injection_log_path else None
         self.top_k = top_k
         self.min_score = min_score
+        self.use_episodic = use_episodic
+        self.use_lessons = use_lessons
+        self.use_bugbook = use_bugbook
+        self.use_solutions = use_solutions
 
-        all_records = load_records(self.records_file)
-        self._snapshot_hash = compute_snapshot_hash(self.records_file)
-
-        # Leakage guard applied at index build time: guarded records never enter the index.
-        self.records: List[ExperienceRecord] = []
+        self._snapshot_hash = compute_snapshot_hash(self.store_dir)
         self.excluded_same_task = 0
         self.excluded_listed = 0
-        for rec in all_records:
-            tid = rec.task_id.strip().lower()
+
+        self.records: List[ExperienceRecord] = self._guarded(
+            load_entries(self.records_file, ExperienceRecord) if use_episodic else []
+        )
+        self.lessons: List[Lesson] = self._guarded(
+            load_entries(self.store_dir / LESSONS_FILENAME, Lesson) if use_lessons else []
+        )
+        self.bugbook: List[BugBookEntry] = self._guarded(
+            load_entries(self.store_dir / BUGBOOK_FILENAME, BugBookEntry) if use_bugbook else []
+        )
+        self.solutions: List[SolutionEntry] = self._guarded(
+            load_entries(self.store_dir / SOLUTIONS_FILENAME, SolutionEntry) if use_solutions else []
+        )
+
+        self.retriever = self._build_episodic_retriever(embedding_model_path, embedding_device)
+        self.lesson_retriever = _Bm25Only(self.lessons, [l.search_text() for l in self.lessons])
+        self.bug_retriever = _Bm25Only(self.bugbook, [b.search_text() for b in self.bugbook])
+        self.solution_retriever = _Bm25Only(self.solutions, [s.search_text() for s in self.solutions])
+
+        logger.info(
+            f"[Experience] Store loaded: {len(self.records)} records, {len(self.lessons)} lessons, "
+            f"{len(self.bugbook)} bugbook entries, {len(self.solutions)} solutions retrievable "
+            f"({self.excluded_same_task} excluded as same-task '{self.current_task_id}', "
+            f"{self.excluded_listed} excluded by list), snapshot={self._snapshot_hash}"
+        )
+
+    def _guarded(self, entries: List[Any]) -> List[Any]:
+        """Apply the leakage guard: same-task and listed task ids never enter any index."""
+        kept = []
+        for e in entries:
+            tid = (getattr(e, "task_id", "") or "").strip().lower()
             if tid and tid == self.current_task_id:
                 self.excluded_same_task += 1
             elif tid in self.excluded_task_ids:
                 self.excluded_listed += 1
             else:
-                self.records.append(rec)
+                kept.append(e)
+        return kept
 
+    def _build_episodic_retriever(self, embedding_model_path: str, embedding_device: str):
         texts = [r.search_text() for r in self.records]
-        self.retriever = self._build_retriever(texts, embedding_model_path, embedding_device)
-        logger.info(
-            f"[Experience] Store loaded: {len(self.records)} retrievable records "
-            f"({self.excluded_same_task} excluded as same-task '{self.current_task_id}', "
-            f"{self.excluded_listed} excluded by list), snapshot={self._snapshot_hash}"
-        )
-
-    def _build_retriever(self, texts: List[str], embedding_model_path: str, embedding_device: str):
         if not self.records:
             return _Bm25Only([], [])
         if embedding_model_path:
@@ -134,6 +175,8 @@ class ExperienceStore:
     def snapshot_hash(self) -> str:
         return self._snapshot_hash
 
+    # ---------------- M1 episodic ----------------
+
     def retrieve(
         self,
         query_text: str,
@@ -151,12 +194,18 @@ class ExperienceStore:
         results = [(r, s) for r, s in results if s >= min_score]
         return results[:top_k]
 
+    # ---------------- guidance builders ----------------
+
     def generate_guidance_prompt(self, query_text: str, context_label: str = "") -> str:
-        """Cross-run guidance block for prompts; logs the injection with provenance."""
-        successes = self.retrieve(query_text, label_filter=1)
-        failures = self.retrieve(query_text, label_filter=-1)
-        self._log_injection(context_label, query_text, successes + failures)
-        if not successes and not failures:
+        """Cross-run guidance block (episodic + lessons) for draft/improve prompts."""
+        successes = self.retrieve(query_text, label_filter=1) if self.use_episodic else []
+        failures = self.retrieve(query_text, label_filter=-1) if self.use_episodic else []
+        lessons = (
+            [l for l, s in self.lesson_retriever.search(query_text, top_k=self.top_k * 2)]
+            if self.use_lessons else []
+        )
+        self._log_injection(context_label, query_text, successes + failures, lessons=lessons)
+        if not successes and not failures and not lessons:
             return ""
 
         parts = [
@@ -166,6 +215,13 @@ class ExperienceStore:
             "comparable to this task — transfer the strategies and pitfalls, not the numbers.",
             "",
         ]
+        if lessons:
+            parts.append("**📚 Distilled lessons from past runs:**")
+            for idx, lesson in enumerate(lessons, 1):
+                tags = f" [{', '.join(lesson.scope_tags)}]" if lesson.scope_tags else ""
+                conf = f" (confidence: {lesson.confidence})" if lesson.confidence else ""
+                parts.append(f"{idx}. {lesson.text}{tags}{conf}")
+            parts.append("")
         if successes:
             parts.append("**✅ Approaches that worked on similar problems:**")
             parts.extend(self._format_records(successes))
@@ -183,6 +239,65 @@ class ExperienceStore:
         sep = "\n\n" if memory_text.strip() else ""
         return f"{memory_text}{sep}{guidance}\n"
 
+    def get_bugbook_guidance(self, error_text: str, context_label: str = "debug") -> str:
+        """Cross-run fixes for the current error: exact signature match, then BM25."""
+        if not self.use_bugbook or not self.bugbook or not (error_text or "").strip():
+            return ""
+        from .mining import error_signature
+
+        signature = error_signature(error_text)
+        exact = [b for b in self.bugbook if signature and b.error_signature == signature]
+        matches = [(b, 1.0) for b in exact[: self.top_k]]
+        if not matches:
+            matches = self.bug_retriever.search(error_text[-2000:], top_k=self.top_k)
+        self._log_injection(context_label, error_text, matches)
+        if not matches:
+            return ""
+
+        parts = [
+            "The same or a similar error was fixed in previous runs on OTHER competitions:",
+            "",
+        ]
+        for idx, (bug, _score) in enumerate(matches, 1):
+            parts.append(f"{idx}. Error pattern: `{bug.error_signature}`")
+            parts.append(f"   Fix that worked: {bug.fix_plan}")
+            if bug.fix_method:
+                parts.append(f"   Implementation note: {bug.fix_method}")
+        parts.append("")
+        parts.append("Adapt the fix to the current code — do not copy it blindly.")
+        return "\n".join(parts)
+
+    def get_solution_guidance(self, query_text: str, context_label: str = "draft", max_chars: int = 6000) -> str:
+        """Reference pipeline from the most similar past competition (top-1)."""
+        if not self.use_solutions or not self.solutions:
+            return ""
+        matches = self.solution_retriever.search(query_text, top_k=1)
+        self._log_injection(context_label, query_text, matches)
+        if not matches:
+            return ""
+        sol = matches[0][0]
+        code_path = self.store_dir / SOLUTIONS_DIRNAME / sol.code_file
+        try:
+            code = code_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            logger.warning(f"[Experience] Solution file unreadable ({code_path}): {e}")
+            return ""
+        truncated = len(code) > max_chars
+        code = code[:max_chars]
+        source = f"{sol.domain or sol.task_id}" + (f", {sol.metric_name}" if sol.metric_name else "")
+        return "\n".join([
+            f"A proven pipeline from a DIFFERENT past competition ({source}, rank top{sol.rank}).",
+            "It solves a different dataset: use it as a structural reference for pipeline",
+            "organization and technique choices — you MUST adapt data loading, features,",
+            "and the target to THIS task, not copy it.",
+            "",
+            "```python",
+            code + ("\n# ... [truncated]" if truncated else ""),
+            "```",
+        ])
+
+    # ---------------- internals ----------------
+
     def _format_records(self, results: List[Tuple[ExperienceRecord, float]]) -> List[str]:
         lines = []
         for idx, (rec, _score) in enumerate(results, 1):
@@ -198,11 +313,30 @@ class ExperienceStore:
         lines.append("")
         return lines
 
+    @staticmethod
+    def _entry_id(entry: Any) -> str:
+        for attr in ("record_id", "lesson_id", "entry_id", "solution_id"):
+            value = getattr(entry, attr, None)
+            if value:
+                return str(value)
+        return ""
+
     def _log_injection(
-        self, context_label: str, query_text: str, results: List[Tuple[ExperienceRecord, float]]
+        self,
+        context_label: str,
+        query_text: str,
+        results: List[Tuple[Any, float]],
+        lessons: Optional[List[Lesson]] = None,
     ) -> None:
         if self.injection_log_path is None:
             return
+        retrieved = [
+            {"id": self._entry_id(e), "task_id": getattr(e, "task_id", ""), "score": round(float(s), 6)}
+            for e, s in results
+        ]
+        retrieved += [
+            {"id": l.lesson_id, "task_id": l.task_id, "score": None} for l in (lessons or [])
+        ]
         entry = {
             "timestamp": datetime.now().isoformat(),
             "context": context_label,
@@ -211,11 +345,7 @@ class ExperienceStore:
             "current_task_id": self.current_task_id,
             "excluded_same_task": self.excluded_same_task,
             "excluded_listed": self.excluded_listed,
-            "retrieved": [
-                {"record_id": r.record_id, "task_id": r.task_id, "stage": r.stage,
-                 "label": r.label, "score": round(float(s), 6)}
-                for r, s in results
-            ],
+            "retrieved": retrieved,
         }
         try:
             self.injection_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -225,34 +355,55 @@ class ExperienceStore:
             logger.warning(f"[Experience] Failed to write injection log: {e}")
 
 
-def load_records(records_file: Path) -> List[ExperienceRecord]:
-    records: List[ExperienceRecord] = []
-    if not records_file.exists():
-        return records
-    with open(records_file, "r", encoding="utf-8") as f:
+# ---------------- module-level store IO ----------------
+
+def load_entries(path: Path, cls) -> List[Any]:
+    entries: List[Any] = []
+    if not path.exists():
+        return entries
+    with open(path, "r", encoding="utf-8") as f:
         for line_no, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
             try:
-                records.append(ExperienceRecord.from_dict(json.loads(line)))
+                entries.append(cls.from_dict(json.loads(line)))
             except Exception as e:
-                logger.warning(f"[Experience] Skipping malformed record at {records_file}:{line_no}: {e}")
-    return records
+                logger.warning(f"[Experience] Skipping malformed entry at {path}:{line_no}: {e}")
+    return entries
+
+
+def load_records(records_file: Path) -> List[ExperienceRecord]:
+    return load_entries(records_file, ExperienceRecord)
+
+
+def append_entries(path: Path, entries: List[Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        for entry in entries:
+            f.write(json.dumps(entry.to_dict(), ensure_ascii=False) + "\n")
 
 
 def append_records(records_file: Path, records: List[ExperienceRecord]) -> None:
-    records_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(records_file, "a", encoding="utf-8") as f:
-        for rec in records:
-            f.write(json.dumps(rec.to_dict(), ensure_ascii=False) + "\n")
+    append_entries(records_file, records)
 
 
-def compute_snapshot_hash(records_file: Path) -> str:
-    """Content hash identifying the exact store state a run consumed."""
+def compute_snapshot_hash(store_path: Path) -> str:
+    """Content hash identifying the exact store state a run consumed.
+
+    Accepts the store directory (hashes every store file, sorted by relative
+    path) or a single file (back-compatible with early callers).
+    """
     h = hashlib.sha256()
-    if records_file.exists():
-        with open(records_file, "rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
+    store_path = Path(store_path)
+    if store_path.is_dir():
+        files = sorted(
+            p for p in store_path.rglob("*")
+            if p.is_file() and (p.suffix in (".jsonl", ".py")) and not p.name.startswith(".")
+        )
+        for p in files:
+            h.update(str(p.relative_to(store_path)).encode())
+            h.update(p.read_bytes())
+    elif store_path.exists():
+        h.update(store_path.read_bytes())
     return h.hexdigest()[:16]

@@ -86,6 +86,11 @@ class ExperienceConfig:
     top_k: int = 2
     min_score: float = 0.0
     excluded_task_ids: list = field(default_factory=list)
+    # per-mechanism switches (E4 mechanism ablation)
+    use_episodic: bool = True    # M1: node-level records into draft/improve
+    use_lessons: bool = True     # M2: distilled lessons into draft/improve
+    use_bugbook: bool = True     # M2: error->fix entries into debug
+    use_solutions: bool = True   # M3: reference pipeline into draft
 
 
 @dataclass

@@ -21,8 +21,18 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .entries import BugBookEntry, SolutionEntry
 from .record import ExperienceRecord
-from .store import RECORDS_FILENAME, append_records, compute_snapshot_hash, load_records
+from .store import (
+    BUGBOOK_FILENAME,
+    RECORDS_FILENAME,
+    SOLUTIONS_FILENAME,
+    append_entries,
+    append_records,
+    compute_snapshot_hash,
+    load_entries,
+    load_records,
+)
 
 
 def find_run_records_file(run_dir: Path) -> Optional[Path]:
@@ -115,6 +125,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--domain", default="", help="Task domain tag, e.g. 'Tabular'")
     parser.add_argument("--metric-name", default="")
     parser.add_argument("--metric-direction", default="", choices=["", "maximize", "minimize"])
+    parser.add_argument("--with-bugbook", action="store_true", help="Also mine error->fix pairs from logs/journal.json")
+    parser.add_argument("--with-solutions", action="store_true", help="Also index workspace/top_solution code")
+    parser.add_argument("--top-n", type=int, default=3, help="Top-N solutions to index per run (with --with-solutions)")
     parser.add_argument("--dry-run", action="store_true", help="Report what would be ingested without writing")
     args = parser.parse_args(argv)
 
@@ -123,8 +136,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     records_file = args.store_dir / RECORDS_FILENAME
     existing_ids = {r.record_id for r in load_records(records_file)}
+    bug_runs = {(b.task_id, b.run_id) for b in load_entries(args.store_dir / BUGBOOK_FILENAME, BugBookEntry)}
+    solution_runs = {(s.task_id, s.run_id) for s in load_entries(args.store_dir / SOLUTIONS_FILENAME, SolutionEntry)}
 
-    total_added, total_skipped = 0, 0
+    total_added, total_skipped, total_bugs, total_solutions = 0, 0, 0, 0
     for run_dir in args.run_dirs:
         run_records_file = find_run_records_file(run_dir)
         if run_records_file is None:
@@ -149,11 +164,51 @@ def main(argv: Optional[List[str]] = None) -> int:
         existing_ids.update(r.record_id for r in fresh)
         total_added += len(fresh)
         total_skipped += skipped
-        print(f"[ok] {run_dir}: task={task_id} run={run_id} added={len(fresh)} skipped_dup={skipped}")
+
+        bugs_added, solutions_added = 0, 0
+        if args.with_bugbook and (task_id, run_id) not in bug_runs:
+            from .mining import mine_bugbook
+
+            journal_path = next(
+                (p for p in (run_dir / "logs" / "journal.json", run_dir / "journal.json") if p.exists()), None,
+            )
+            if journal_path is None:
+                print(f"[warn] {run_dir}: --with-bugbook but no logs/journal.json", file=sys.stderr)
+            else:
+                bugs = mine_bugbook(journal_path, task_id, run_id, domain=args.domain)
+                if not args.dry_run and bugs:
+                    append_entries(args.store_dir / BUGBOOK_FILENAME, bugs)
+                bug_runs.add((task_id, run_id))
+                bugs_added = len(bugs)
+                total_bugs += bugs_added
+
+        if args.with_solutions and (task_id, run_id) not in solution_runs:
+            from .mining import index_solutions
+
+            if args.dry_run:
+                print(f"[dry-run] {run_dir}: would index top-{args.top_n} solutions")
+            else:
+                solutions = index_solutions(
+                    run_dir, args.store_dir, task_id, run_id,
+                    domain=args.domain, metric_name=args.metric_name, top_n=args.top_n,
+                )
+                if solutions:
+                    append_entries(args.store_dir / SOLUTIONS_FILENAME, solutions)
+                solution_runs.add((task_id, run_id))
+                solutions_added = len(solutions)
+                total_solutions += solutions_added
+
+        print(
+            f"[ok] {run_dir}: task={task_id} run={run_id} added={len(fresh)} skipped_dup={skipped}"
+            + (f" bugs={bugs_added}" if args.with_bugbook else "")
+            + (f" solutions={solutions_added}" if args.with_solutions else "")
+        )
 
     action = "would add" if args.dry_run else "added"
-    print(f"Done: {action} {total_added} records ({total_skipped} duplicates skipped)")
-    print(f"Store snapshot: {compute_snapshot_hash(records_file)}")
+    print(f"Done: {action} {total_added} records ({total_skipped} duplicates skipped)"
+          + (f", {total_bugs} bugbook entries" if args.with_bugbook else "")
+          + (f", {total_solutions} solutions" if args.with_solutions else ""))
+    print(f"Store snapshot: {compute_snapshot_hash(args.store_dir)}")
     return 0
 
 

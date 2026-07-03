@@ -121,6 +121,10 @@ class AgentSearch:
                     injection_log_path=Path(str(self.cfg.log_dir)) / "experience_injections.jsonl",
                     top_k=exp_cfg.top_k,
                     min_score=exp_cfg.min_score,
+                    use_episodic=getattr(exp_cfg, "use_episodic", True),
+                    use_lessons=getattr(exp_cfg, "use_lessons", True),
+                    use_bugbook=getattr(exp_cfg, "use_bugbook", True),
+                    use_solutions=getattr(exp_cfg, "use_solutions", True),
                 )
             except Exception as e:
                 import traceback

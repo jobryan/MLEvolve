@@ -84,7 +84,12 @@ agent:
     task_id: ""              # current competition id for the leakage guard; defaults to data_dir basename
     top_k: 2                 # records injected per outcome class (success/fail)
     min_score: 0.0
-    excluded_task_ids: []    # hard-excluded competitions (e.g. the held-out eval split)
+    excluded_task_ids: []    # hard-excluded competitions (e.g. the task's own fold)
+    # per-mechanism switches (E4 mechanism ablation)
+    use_episodic: True       # M1: node-level records into draft/improve
+    use_lessons: True        # M2: distilled lessons into draft/improve
+    use_bugbook: True        # M2: error->fix entries into debug
+    use_solutions: True      # M3: reference pipeline into draft
 
   # --------------------------------------------------------
   #  Search tree params

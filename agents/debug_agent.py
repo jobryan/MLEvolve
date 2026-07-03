@@ -143,6 +143,16 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
     if debug_memory_guidance:
         prompt["Instructions"]["Historical Debug Experience"] = [debug_memory_guidance]
 
+    if getattr(agent, "experience_store", None) is not None:
+        try:
+            cross_run_fixes = agent.experience_store.get_bugbook_guidance(
+                parent_node.term_out or "", context_label="debug-bugbook",
+            )
+            if cross_run_fixes:
+                prompt["Instructions"]["Cross-Run Debug Experience (other competitions)"] = [cross_run_fixes]
+        except Exception as e:
+            logger.warning(f"[Debug] Failed to retrieve cross-run bugbook: {e}")
+
     base_instructions = "\n# Instructions\n\n"
     base_instructions += compile_prompt_to_md(prompt["Instructions"], 2)
 
