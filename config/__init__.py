@@ -79,6 +79,16 @@ class SearchConfig:
     use_stagnation_detection: bool = True
 
 @dataclass
+class ExperienceConfig:
+    enabled: bool = False
+    store_dir: str = ""
+    task_id: str = ""
+    top_k: int = 2
+    min_score: float = 0.0
+    excluded_task_ids: list = field(default_factory=list)
+
+
+@dataclass
 class AgentConfig:
     steps: int
     time_limit: int
@@ -102,6 +112,7 @@ class AgentConfig:
     use_evolution: bool = True
     use_fusion: bool = True
     use_aggregation: bool = True
+    experience: ExperienceConfig = field(default_factory=ExperienceConfig)
 @dataclass
 class ExecConfig:
     timeout: int

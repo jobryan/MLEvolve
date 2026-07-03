@@ -43,6 +43,12 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
         "Memory": parent_node.fetch_child_memory(include_code=False),
         "Instructions": {},
     }
+    if getattr(agent, "experience_store", None) is not None:
+        prompt["Memory"] = agent.experience_store.augment_memory_text(
+            prompt["Memory"],
+            query_text=f"{str(agent.task_desc)[:2000]}\n{parent_node.plan or ''}",
+            context_label="improve",
+        )
     prompt["Previous solution"] = {
         "Code": wrap_code(parent_node.code),
     }

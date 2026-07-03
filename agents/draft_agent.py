@@ -66,6 +66,10 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
         "Memory": agent.virtual_root.fetch_child_memory(),
         "Instructions": {},
     }
+    if getattr(agent, "experience_store", None) is not None:
+        prompt["Memory"] = agent.experience_store.augment_memory_text(
+            prompt["Memory"], query_text=str(agent.task_desc)[:4000], context_label="draft",
+        )
     prompt["Instructions"] |= prompt_resp_fmt()
 
     prompt["Instructions"] |= {

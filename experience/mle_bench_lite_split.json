@@ -1,0 +1,54 @@
+{
+  "split_version": "v4-foldswap",
+  "frozen_date": "2026-07-02",
+  "benchmark": "mle-bench-lite (22 competitions, official low-complexity split; all 22 verified downloadable for account jonobryan via download-all API preflight, 2026-07-02)",
+  "purpose": "Frozen fold-swap (cross-over) split for the self-learning autoresearcher experiments (docs/self_learning_autoresearcher_plan.md). Arm-A runs on each fold form the experience store for evaluating the OTHER fold, so all 20 non-canary tasks are eval tasks (n=20 paired comparisons instead of 8). Frozen BEFORE any experience-building runs; must not change once E1 begins.",
+  "design": "Store_A = ingested arm-A runs of fold_a; Store_B = ingested arm-A runs of fold_b. Arm B evaluates fold_b tasks with Store_A and fold_a tasks with Store_B. A task's own records can therefore never be in its store by construction; the ExperienceStore same-task leakage guard enforces this again at index build time.",
+  "assignment_rule": "Stratified by task manifest domain; within each domain, tasks sorted alphabetically and alternated between folds, then adjusted for the documented exceptions. Version history (no version ever consumed by a run): v1 12/8/2 fixed split; v2 fold-swap 10/10; v3 temporarily dropped detecting-insults and whale-redux (Kaggle access blocked, 403); v4 restores v2's 10/10 assignment unchanged after the user gained access and the download-all preflight verified 22/22 OK (2026-07-02).",
+  "exceptions": [
+    "aerial-cactus-identification -> canary: named in the anchor's task-specific prompt hardening and near performance ceiling per Tranche 1b — unusable as measurement, ideal as smoke test.",
+    "tabular-playground-series-may-2022 -> canary: primary micro-pilot smoke task throughout the phoenix ablation study.",
+    "nomad2018-predict-transparent-conductors placed in fold_b alongside new-york-city-taxi-fare-prediction so that dropping flagged tasks in sensitivity analysis leaves every fold with a tabular eval task.",
+    "Heavy datasets balanced across folds: fold_a carries aptos2019 (10GB) + siim-isic (116GB); fold_b carries ranzcr (13GB) + histopathologic (7.8GB) + nyc-taxi (5.7GB).",
+    "Deliberate near-transfer probe pairs split across folds: text-normalization english (fold_a) / russian (fold_b); mlsp-2013-birds (fold_a) / whale-challenge (fold_b)."
+  ],
+  "fold_a": [
+    "aptos2019-blindness-detection",
+    "denoising-dirty-documents",
+    "detecting-insults-in-social-commentary",
+    "dogs-vs-cats-redux-kernels-edition",
+    "mlsp-2013-birds",
+    "plant-pathology-2020-fgvc7",
+    "random-acts-of-pizza",
+    "siim-isic-melanoma-classification",
+    "tabular-playground-series-dec-2021",
+    "text-normalization-challenge-english-language"
+  ],
+  "fold_b": [
+    "dog-breed-identification",
+    "histopathologic-cancer-detection",
+    "jigsaw-toxic-comment-classification-challenge",
+    "leaf-classification",
+    "new-york-city-taxi-fare-prediction",
+    "nomad2018-predict-transparent-conductors",
+    "ranzcr-clip-catheter-line-classification",
+    "spooky-author-identification",
+    "text-normalization-challenge-russian-language",
+    "the-icml-2013-whale-challenge-right-whale-redux"
+  ],
+  "canary": [
+    "aerial-cactus-identification",
+    "tabular-playground-series-may-2022"
+  ],
+  "flagged_tasks": {
+    "nomad2018-predict-transparent-conductors": "Anchor prompt hardening names this task (arm-symmetric, but report sensitivity with/without).",
+    "denoising-dirty-documents": "Tranche 1c repairs include denoising-specific prompt/setup fixes; final flag status set at E0 anchor freeze."
+  },
+  "ceiling_screen": "Pre-registered: any task where arm A's seed-median leaderboard percentile exceeds 90 is flagged post-hoc; primary analysis reported with and without flagged/ceiling tasks.",
+  "usage_notes": [
+    "Stores are built ONLY from arm-A runs of the opposite fold (ingested offline via python -m experience.ingest).",
+    "When running an eval task with a store enabled, set agent.experience.excluded_task_ids to the task's own fold list as a second line of defense behind the same-task leakage guard.",
+    "Canary tasks are for smoke/pipeline checks and never enter analysis.",
+    "E2 learning-curve sequences use a fixed stratified 12-task subset of the 20 (chosen and frozen when E2 launches, before any E2 runs)."
+  ]
+}

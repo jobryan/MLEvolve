@@ -104,6 +104,32 @@ class AgentSearch:
         else:
             logger.info("[AgentSearch] Global memory is disabled by config")
 
+        # Cross-run experience store (read-only during the run; ingestion is offline)
+        self.experience_store = None
+        exp_cfg = getattr(self.acfg, "experience", None)
+        if exp_cfg is not None and exp_cfg.enabled:
+            try:
+                from pathlib import Path
+                from experience.store import ExperienceStore
+                task_id = exp_cfg.task_id or Path(str(self.cfg.data_dir)).name
+                self.experience_store = ExperienceStore(
+                    store_dir=exp_cfg.store_dir,
+                    current_task_id=task_id,
+                    embedding_model_path=self.acfg.memory_embedding_model_path,
+                    embedding_device=self.acfg.memory_embedding_device,
+                    excluded_task_ids=list(exp_cfg.excluded_task_ids or []),
+                    injection_log_path=Path(str(self.cfg.log_dir)) / "experience_injections.jsonl",
+                    top_k=exp_cfg.top_k,
+                    min_score=exp_cfg.min_score,
+                )
+            except Exception as e:
+                import traceback
+                logger.warning(f"[AgentSearch] Failed to initialize experience store: {e}")
+                logger.debug(f"[AgentSearch] Experience store initialization traceback: {traceback.format_exc()}")
+                self.experience_store = None
+        else:
+            logger.info("[AgentSearch] Experience store is disabled by config")
+
     def _serialize_prompt(self, prompt_complete) -> str | None:
         """Serialize prompt (str or dict) to string for saving in node."""
         if prompt_complete is None:
