@@ -272,6 +272,52 @@ def test_ingest_with_bugbook_and_solutions():
         assert len(store2.records) == 1 and len(store2.bugbook) == 1 and len(store2.solutions) == 1
 
 
+def test_placebo_store():
+    from .placebo import build_placebo, derangement
+    import random
+
+    # derangement has no fixed points and is deterministic
+    rng = random.Random(7)
+    for n in (2, 3, 5, 20):
+        perm = derangement(n, random.Random(7))
+        assert sorted(perm) == list(range(n)) and all(perm[i] != i for i in range(n))
+    assert derangement(5, random.Random(7)) == derangement(5, random.Random(7))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "real"
+        _seed_store(src)
+        append_entries(src / LESSONS_FILENAME, [
+            Lesson(lesson_id=f"t{i}/r/lesson_0", task_id=f"t{i}", run_id="r",
+                   text=f"lesson text number {i}", scope_tags=["tabular"]) for i in range(3)
+        ])
+        out = Path(tmp) / "placebo"
+        meta = build_placebo(src, out, seed=1)
+        assert meta["source_snapshot"] != meta["placebo_snapshot"]
+
+        real = ExperienceStore(store_dir=str(src), current_task_id="zzz")
+        fake = ExperienceStore(store_dir=str(out), current_task_id="zzz")
+        # same sizes and token multiset, different content-to-provenance mapping
+        assert len(real.records) == len(fake.records) == 4
+        assert sorted(r.description for r in real.records) == sorted(r.description for r in fake.records)
+        moved = sum(
+            1 for rr, fr in zip(
+                sorted(real.records, key=lambda r: r.record_id),
+                sorted(fake.records, key=lambda r: r.record_id),
+            ) if rr.description != fr.description
+        )
+        assert moved == len(real.records), "every record's content must be deranged"
+        # labels/provenance stayed in place
+        rr0 = sorted(real.records, key=lambda r: r.record_id)[0]
+        fr0 = sorted(fake.records, key=lambda r: r.record_id)[0]
+        assert rr0.task_id == fr0.task_id and rr0.label == fr0.label
+        # refuses to overwrite
+        try:
+            build_placebo(src, out, seed=1)
+            assert False, "should refuse non-empty output"
+        except SystemExit:
+            pass
+
+
 if __name__ == "__main__":
     for fn in (
         test_leakage_guard_and_retrieval,
@@ -284,6 +330,7 @@ if __name__ == "__main__":
         test_solutions_index_and_guidance,
         test_snapshot_hash_covers_all_store_files,
         test_ingest_with_bugbook_and_solutions,
+        test_placebo_store,
     ):
         fn()
         print(f"PASS {fn.__name__}")
