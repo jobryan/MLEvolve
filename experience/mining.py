@@ -105,6 +105,85 @@ def mine_bugbook(
     return entries
 
 
+def mine_episodic_records(
+    journal_path: Path,
+    task_id: str,
+    run_id: str,
+    domain: str = "",
+    metric_name: str = "",
+    metric_direction: str = "",
+) -> List["ExperienceRecord"]:
+    """Fallback episodic ingestion straight from logs/journal.json.
+
+    Used when a run has no global_memory/records.json (e.g. the memory layer
+    silently disabled on a CPU/offline worker). Mirrors GlobalMemoryLayer's
+    save rules: only non-buggy nodes with a metric value; labels derived from
+    stage and parent-metric comparison. Record ids use a 'jnode_' prefix so a
+    later records.json ingest of the same run cannot double-count nodes.
+    """
+    from .record import ExperienceRecord
+
+    nodes, node2parent = load_journal(journal_path)
+    records: List[ExperienceRecord] = []
+    for node in nodes.values():
+        if node.get("is_buggy") is not False:
+            continue
+        metric = node.get("metric") or {}
+        value = metric.get("value") if isinstance(metric, dict) else None
+        if value is None:
+            continue
+        parent = nodes.get(node2parent.get(node.get("id", ""), ""))
+        stage = node.get("stage") or "unknown"
+
+        label = 0
+        if stage in ("draft", "fusion_draft"):
+            label = 1
+        elif stage == "debug":
+            label = 1 if (parent and parent.get("is_buggy") is True) else 0
+        elif stage in ("improve", "evolution", "fusion") and parent:
+            parent_metric = (parent.get("metric") or {}).get("value") if isinstance(parent.get("metric"), dict) else None
+            if parent_metric is not None:
+                maximize = metric.get("maximize")
+                if maximize is None:
+                    maximize = metric_direction != "minimize"
+                if value != parent_metric:
+                    label = 1 if ((value > parent_metric) == bool(maximize)) else -1
+
+        plan = (node.get("plan") or "").strip()
+        method = (node.get("code_summary") or "").strip() or plan[:500]
+        if not plan and not method:
+            continue
+
+        parent_error = ""
+        if stage == "debug" and parent:
+            parent_error = _node_error_text(parent)[-1500:]
+
+        parent_metric_value = None
+        if parent and isinstance(parent.get("metric"), dict):
+            parent_metric_value = parent["metric"].get("value")
+
+        records.append(
+            ExperienceRecord(
+                record_id=f"{task_id}/{run_id}/jnode_{node.get('id')}",
+                task_id=task_id,
+                run_id=run_id,
+                stage=stage,
+                description=plan[:2000],
+                method=method[:1000],
+                label=label,
+                domain=domain,
+                metric_name=metric_name,
+                metric_direction=metric_direction,
+                parent_metric=parent_metric_value,
+                current_metric=value,
+                exec_time=node.get("exec_time"),
+                parent_error=parent_error,
+                timestamp=node.get("created_time") or None,
+            )
+        )
+    return records
+
+
 def _parse_metric_file(metric_file: Path) -> Tuple[Optional[float], Optional[bool]]:
     value, maximize = None, None
     try:

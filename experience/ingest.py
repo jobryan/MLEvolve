@@ -125,6 +125,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--domain", default="", help="Task domain tag, e.g. 'Tabular'")
     parser.add_argument("--metric-name", default="")
     parser.add_argument("--metric-direction", default="", choices=["", "maximize", "minimize"])
+    parser.add_argument("--from-journal", action="store_true",
+                        help="Mine episodic records from logs/journal.json even if global_memory records exist")
     parser.add_argument("--with-bugbook", action="store_true", help="Also mine error->fix pairs from logs/journal.json")
     parser.add_argument("--with-solutions", action="store_true", help="Also index workspace/top_solution code")
     parser.add_argument("--top-n", type=int, default=3, help="Top-N solutions to index per run (with --with-solutions)")
@@ -141,11 +143,6 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     total_added, total_skipped, total_bugs, total_solutions = 0, 0, 0, 0
     for run_dir in args.run_dirs:
-        run_records_file = find_run_records_file(run_dir)
-        if run_records_file is None:
-            print(f"[skip] {run_dir}: no global_memory/records.json found", file=sys.stderr)
-            continue
-
         run_config = read_run_config(run_dir)
         task_id = (args.task_id or derive_task_id(run_config)).strip().lower()
         if not task_id:
@@ -153,9 +150,24 @@ def main(argv: Optional[List[str]] = None) -> int:
             continue
         run_id = args.run_id or run_config.get("exp_name") or run_dir.name
 
-        converted = convert_run_records(
-            run_records_file, task_id, run_id, args.domain, args.metric_name, args.metric_direction,
+        journal_path = next(
+            (p for p in (run_dir / "logs" / "journal.json", run_dir / "journal.json") if p.exists()), None,
         )
+        run_records_file = find_run_records_file(run_dir)
+        if run_records_file is not None and not args.from_journal:
+            converted = convert_run_records(
+                run_records_file, task_id, run_id, args.domain, args.metric_name, args.metric_direction,
+            )
+        elif journal_path is not None:
+            from .mining import mine_episodic_records
+
+            converted = mine_episodic_records(
+                journal_path, task_id, run_id, args.domain, args.metric_name, args.metric_direction,
+            )
+            print(f"[info] {run_dir}: no global_memory records — mined {len(converted)} episodic records from journal.json")
+        else:
+            print(f"[skip] {run_dir}: neither global_memory/records.json nor logs/journal.json found", file=sys.stderr)
+            continue
         fresh = [r for r in converted if r.record_id not in existing_ids]
         skipped = len(converted) - len(fresh)
 
@@ -169,9 +181,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.with_bugbook and (task_id, run_id) not in bug_runs:
             from .mining import mine_bugbook
 
-            journal_path = next(
-                (p for p in (run_dir / "logs" / "journal.json", run_dir / "journal.json") if p.exists()), None,
-            )
             if journal_path is None:
                 print(f"[warn] {run_dir}: --with-bugbook but no logs/journal.json", file=sys.stderr)
             else:

@@ -272,6 +272,29 @@ def test_ingest_with_bugbook_and_solutions():
         assert len(store2.records) == 1 and len(store2.bugbook) == 1 and len(store2.solutions) == 1
 
 
+def test_ingest_journal_fallback():
+    """Runs without global_memory records (CPU worker with memory disabled) still yield a corpus."""
+    with tempfile.TemporaryDirectory() as tmp:
+        run_dir = Path(tmp) / "run_no_memory"
+        (run_dir / "logs").mkdir(parents=True)
+        (run_dir / "logs" / "config.yaml").write_text("exp_name: rj\ndata_dir: /d/leaf-classification/prepared/public\n")
+        _write_fixture_journal(run_dir / "logs" / "journal.json")
+
+        store_dir = Path(tmp) / "store"
+        rc = ingest_main([str(run_dir), "--store-dir", str(store_dir), "--metric-direction", "maximize"])
+        assert rc == 0
+        store = ExperienceStore(store_dir=str(store_dir), current_task_id="other")
+        assert len(store.records) == 2, [r.record_id for r in store.records]
+        debug_rec = next(r for r in store.records if r.stage == "debug")
+        assert debug_rec.label == 1 and debug_rec.record_id.endswith("jnode_bbb")
+        assert "KeyError" in debug_rec.parent_error
+        improve_rec = next(r for r in store.records if r.stage == "improve")
+        assert improve_rec.label == 1 and improve_rec.current_metric == 0.6
+        # idempotent
+        ingest_main([str(run_dir), "--store-dir", str(store_dir), "--metric-direction", "maximize"])
+        assert len(ExperienceStore(store_dir=str(store_dir), current_task_id="other").records) == 2
+
+
 def test_placebo_store():
     from .placebo import build_placebo, derangement
     import random
@@ -330,6 +353,7 @@ if __name__ == "__main__":
         test_solutions_index_and_guidance,
         test_snapshot_hash_covers_all_store_files,
         test_ingest_with_bugbook_and_solutions,
+        test_ingest_journal_fallback,
         test_placebo_store,
     ):
         fn()

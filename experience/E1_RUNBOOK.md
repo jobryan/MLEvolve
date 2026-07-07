@@ -44,6 +44,12 @@ python -m experience.reflect <run_dir>... --store-dir stores/e1_fold_<F> \
 Record snapshot hashes (printed by both CLIs): `STORE_A=____`, `STORE_B=____`.
 Sanity: records > 0 for ≥ 8/10 tasks per fold; bugbook non-empty; ≥ 1 solution per scored run.
 
+Note: on CPU/offline workers the anchor's global-memory layer may silently disable
+(CUDA embedding config + no model download) — ingest then automatically mines
+episodic records from `logs/journal.json` instead, so the corpus cannot come up
+empty as long as journals sync. Verify the `[info] ... mined N episodic records`
+line appears for such runs.
+
 ## Step 3 — Placebo stores (arm C)
 
 ```bash
