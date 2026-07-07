@@ -112,6 +112,7 @@ def build_manifest(
     folds: Dict[str, List[str]],
     store_uris: Dict[str, str],
     store_snapshots: Dict[str, str],
+    store_tarball_shas: Dict[str, str],
     budget: Dict[str, Any],
     e2_commit: str,
 ) -> Dict[str, Any]:
@@ -138,6 +139,7 @@ def build_manifest(
         overrides["agent.experience.excluded_task_ids"] = list(folds[own_fold])
         runtime_controls["store_uri"] = store_uris[opposite]
         runtime_controls["store_snapshot"] = store_snapshots[opposite]
+        runtime_controls["store_tarball_sha256"] = store_tarball_shas.get(opposite, "")
         runtime_controls["store_fold"] = opposite
 
     return {
@@ -194,6 +196,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--store-uri-fold-b", default="", help="S3 URI of the fold_b-built store (read by fold_a tasks)")
     parser.add_argument("--store-snapshot-fold-a", default="")
     parser.add_argument("--store-snapshot-fold-b", default="")
+    parser.add_argument("--store-tarball-sha-fold-a", default="", help="sha256 of the packed fold_a store tarball")
+    parser.add_argument("--store-tarball-sha-fold-b", default="", help="sha256 of the packed fold_b store tarball")
     parser.add_argument("--tasks", default="", help="Comma-separated task subset (e.g. arm D); default all non-canary")
     parser.add_argument("--include-canary", action="store_true", help="Also emit canary tasks (smoke use only)")
     parser.add_argument("--max-cost-usd", type=float, default=MICRO_BUDGET["max_cost_usd"])
@@ -248,12 +252,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     })
     store_uris = {"fold_a": args.store_uri_fold_a, "fold_b": args.store_uri_fold_b}
     store_snapshots = {"fold_a": args.store_snapshot_fold_a, "fold_b": args.store_snapshot_fold_b}
+    store_tarball_shas = {"fold_a": args.store_tarball_sha_fold_a, "fold_b": args.store_tarball_sha_fold_b}
 
     manifests = [
         build_manifest(
             args.arm, tasks_by_id[task_id], seed, args.phase, args.run_id_prefix,
             args.worker_patch_uri, args.worker_patch_sha256,
-            fold_of, folds, store_uris, store_snapshots, budget, e2_commit,
+            fold_of, folds, store_uris, store_snapshots, store_tarball_shas, budget, e2_commit,
         )
         for task_id in task_ids
         for seed in seeds

@@ -25,8 +25,28 @@ Operational sequence for E1 (docs/self_learning_autoresearcher_plan.md §4). Spl
 E2 worker patch = the frozen v3 tarball with its repo-side code replaced by our merged
 branch (which contains the E1 anchor 602291e + the experience layer); phoenix's
 `scripts/` and `.context/external/` (mle-bench snapshot) come from the tarball —
-they are not in the anchor commit. Upload to the E2 S3 prefix, record its sha256,
-and pass both to the manifest generator.
+they are not in the anchor commit.
+
+```bash
+aws s3 cp s3://autoresearch-experiments-058264252788-us-east-1/mlevolve-ai-scientist-v2-ablation/patches/tranche2_worker_patch_20260706_v3.tar.gz /tmp/v3.tar.gz
+python -m experience.build_e2_worker_patch --base-tarball /tmp/v3.tar.gz --output /tmp/e2_worker_patch.tar.gz
+# refuses to build if the base sha256 != the pinned v3 anchor; prints the E2 patch sha256
+aws s3 cp /tmp/e2_worker_patch.tar.gz s3://<bucket>/e2-study/patches/
+```
+
+Then render job specs (after manifests exist):
+
+```bash
+python -m experience.render_e2_jobs --manifests .context/e2/manifests_arm_a.jsonl \
+    --manifest-s3-prefix s3://<bucket>/e2-study/manifests/e2e1-v1 \
+    --artifact-root s3://<bucket>/e2-study/artifacts \
+    --output .context/e2/jobs_arm_a.jsonl
+# per-run manifest JSONs must be uploaded to the same prefix before submission
+```
+
+The rendered worker command verifies the patch tarball sha256 before extraction, and
+for arms B/C/D downloads the store tarball and re-verifies its snapshot hash on-worker
+(a placebo/real mix-up fails the job instead of polluting the arm).
 
 ## Step 1 — Arm A (60 runs; doubles as experience corpus)
 
@@ -70,6 +90,14 @@ python -m experience.placebo --source-store stores/e1_fold_b --output-store stor
 ```
 
 Same sizes/tokens/structure, content deranged; `placebo_meta.json` records source snapshot + seed. Record: `PLACEBO_A=____`, `PLACEBO_B=____`.
+
+Pack every store for S3 (deterministic tarballs; prints the snapshot + tarball hashes
+the manifest generator takes as `--store-snapshot-fold-*` / `--store-tarball-sha-fold-*`):
+
+```bash
+python -m experience.pack_store --store-dir stores/e1_fold_a --output stores/e1_fold_a.tar.gz
+# repeat for fold_b and both placebo stores; upload to s3://<bucket>/e2-study/stores/
+```
 
 ## Step 4 — Canary pair (before the tranche)
 
