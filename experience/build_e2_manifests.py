@@ -77,19 +77,22 @@ ARM_SPECS = {
     },
 }
 
+# Reduced profile per phoenix's t2x readout (2026-07-07): at 10-node/50-min CPU
+# budgets MLEvolve validity was ~44% (0 valid Spooky rows); at 3-4 nodes/30-min
+# it completes. E2 runs adopt the recovery-batch profile.
 MICRO_CONTROLS = {
     "agent.initial_drafts": 1,
     "agent.search.num_drafts": 1,
     "agent.search.parallel_search_num": 1,
-    "agent.search.max_debug_depth": 2,
+    "agent.search.max_debug_depth": 1,
 }
 
 MICRO_BUDGET = {
-    "budget_policy_version": "e2e1-2026-07-06-budget-v1",
+    "budget_policy_version": "e2e1-2026-07-07-budget-v2-reduced",
     "max_cost_usd": 1.5,
-    "max_nodes": 10,
-    "wall_time_seconds": 3000,
-    "max_debug_attempts": 2,
+    "max_nodes": 4,
+    "wall_time_seconds": 1800,
+    "max_debug_attempts": 1,
     "max_input_tokens": 1500000,
     "max_output_tokens": 250000,
     "early_stop": {"catastrophic_valid_node_rate": 0.0, "min_nodes_before_check": 1},

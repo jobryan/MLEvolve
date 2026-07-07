@@ -10,7 +10,7 @@ Operational sequence for E1 (docs/self_learning_autoresearcher_plan.md §4). Spl
   - Worker image digest: `sha256:5c9f3e82ec427b325f5fff731c8b0def46f537528dd57a8a079d16c778625129`; job definition `mlevolve-ai-scientist-v2-ablation-worker:1`
   - Every E2 manifest records all four identifiers.
 - [ ] **Grading in the run path**: proven inside phoenix's pipeline (graded medal rows on NOMAD, incl. gpt-5.5); still verify once on OUR queue via the smoke canary below.
-- [ ] **Base-system confirmation**: phoenix's 149-job graded fleet (9 AIS-anchor vs 9 MLE-anchor rows, 3 tasks × 3 seeds) is running under v3; interim readout at phoenix `.context/ablation/aws_jobs/t2x_interim_readout.md` expected 04:00–08:00 PDT 2026-07-07.
+- [x] **Base-system confirmation** (2026-07-07 readout, `t2x_interim_readout.md`): **qualified yes for MLEvolve** — on held-out grader scores it beats AIS-v2 wherever it completes (NOMAD RMSLE 0.0620 vs 0.0895; Aerial AUC 0.9996 vs 0.9963, margins larger than AIS variant spreads), but validity at 10-node/50-min CPU budgets was ~44% (0 valid Spooky rows) vs ~97% for AIS. Conditions adopted: (1) E2 runs use the reduced profile `max_nodes=4, wall_time_seconds=1800, max_debug_attempts=1` (now the generator default, budget policy v2); (2) wall-clock timeout is a first-class outcome in all denominators; (3) anchor prompt contracts (no-GPU/offline/TF-IDF-first) kept. Expect text tasks (esp. Spooky) to have low validity in ALL arms — arm-symmetric, and validity rate is a co-primary metric where experience could legitimately help.
 - [x] Kaggle access 22/22 (verified 2026-07-02); budget check vs remaining ~$600 envelope.
 
 ## Operational notes from phoenix (2026-07-06 reply memo)
