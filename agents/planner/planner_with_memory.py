@@ -24,6 +24,7 @@ from .base_planner import (
     build_model_prompt,
     parse_planning_response,
 )
+from agents.memory.ablation_controls import dissimilar_guidance_enabled, retrieve_global_memory
 
 logger = logging.getLogger("MLEvolve")
 
@@ -116,23 +117,42 @@ def refine_plan_to_json(
 ) -> Dict[str, Any]:
     query_text = initial_plan_text
 
-    similar_success_records = agent_instance.global_memory.retrieve_similar_records(
+    similar_success_records = retrieve_global_memory(
+        agent_instance,
         query_text=query_text,
         top_k=2,
         alpha=0.5,
         dissimilar=False,
         label_filter=1,
+        event_type="planner_success_global_memory",
     )
 
-    similar_fail_records = agent_instance.global_memory.retrieve_similar_records(
+    similar_fail_records = retrieve_global_memory(
+        agent_instance,
         query_text=query_text,
         top_k=2,
         alpha=0.5,
         dissimilar=False,
         label_filter=-1,
+        event_type="planner_failure_global_memory",
     )
 
-    refinement_guidance = _build_refinement_guidance(similar_success_records, similar_fail_records)
+    dissimilar_records = []
+    if dissimilar_guidance_enabled(agent_instance):
+        dissimilar_records = retrieve_global_memory(
+            agent_instance,
+            query_text=query_text,
+            top_k=2,
+            alpha=0.5,
+            dissimilar=True,
+            event_type="planner_dissimilar_global_memory",
+        )
+
+    refinement_guidance = _build_refinement_guidance(
+        similar_success_records,
+        similar_fail_records,
+        dissimilar_records,
+    )
 
     component_descriptions = get_component_descriptions()
     component_desc_parts = [f"- **{name}**: {desc}" for name, desc in component_descriptions.items()]
@@ -263,9 +283,10 @@ def refine_plan_to_json(
 
 # ============ Internal helpers ============
 
-def _build_refinement_guidance(similar_success_records, similar_fail_records) -> str:
+def _build_refinement_guidance(similar_success_records, similar_fail_records, dissimilar_records=None) -> str:
     """Build guidance text from retrieved similar records."""
-    if not similar_success_records and not similar_fail_records:
+    dissimilar_records = dissimilar_records or []
+    if not similar_success_records and not similar_fail_records and not dissimilar_records:
         return ""
 
     guidance_parts = [
@@ -287,9 +308,17 @@ def _build_refinement_guidance(similar_success_records, similar_fail_records) ->
             guidance_parts.append(f"   Method: {record.method}")
         guidance_parts.append("")
 
+    if dissimilar_records:
+        guidance_parts.append("**Dissimilar Historical Experiments (Diversity Reference):**")
+        for idx, (record, score) in enumerate(dissimilar_records, 1):
+            guidance_parts.append(f"{idx}. Plan: {record.description}")
+            guidance_parts.append(f"   Method: {record.method}")
+        guidance_parts.append("")
+
     logger.info(
         f"[RefinePlan] Retrieved {len(similar_success_records)} success "
-        f"and {len(similar_fail_records)} fail records"
+        f"and {len(similar_fail_records)} fail records, plus "
+        f"{len(dissimilar_records)} dissimilar records"
     )
     return "\n".join(guidance_parts)
 

@@ -8,6 +8,8 @@ from llm import compile_prompt_to_md
 from engine.search_node import SearchNode
 from utils.response import wrap_code
 from agents.triggers import get_patience_counter, register_node
+from agents.memory.ablation_controls import get_child_memory, global_memory_available
+from agents.workflow_controls import diversity_prompts_enabled
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
     prompt_leakage_prevention,
@@ -40,7 +42,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
     prompt: Any = {
         "Introduction": introduction,
         "Task description": agent.task_desc,
-        "Memory": parent_node.fetch_child_memory(include_code=False),
+        "Memory": get_child_memory(agent, parent_node, include_code=False, source="improve_child_history"),
         "Instructions": {},
     }
     if getattr(agent, "experience_store", None) is not None:
@@ -195,10 +197,16 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
             ],
         }
 
+    improvement_guidelines = [
+        "- Propose a single, specific, actionable improvement (atomic change for controlled experiment).\n",
+    ]
+    if diversity_prompts_enabled(agent):
+        improvement_guidelines.append(
+            "- Your improvement must be distinctly different from existing attempts in the Memory section.\n"
+        )
     prompt["Instructions"] |= {
-        "Solution improvement guidelines": [
-            "- Propose a single, specific, actionable improvement (atomic change for controlled experiment).\n",
-            "- Your improvement must be distinctly different from existing attempts in the Memory section.\n",
+        "Solution improvement guidelines": improvement_guidelines
+        + [
             "",
             "⚠️ **IMPORTANT: Depth of Improvement**",
             "Consider TWO types of improvements (both are valid, but think about which is more appropriate):",
@@ -302,11 +310,7 @@ def _diff_improve(agent, prompt_base, data_preview, parent_node):
         "parent_node": parent_node,
     }
 
-    use_memory = (
-        getattr(agent.acfg, 'use_global_memory', False)
-        and agent.global_memory is not None
-        and len(agent.global_memory.records) > 0
-    )
+    use_memory = global_memory_available(agent)
 
     if use_memory:
         logger.info("[DiffImprove] Using two-stage planning with memory")

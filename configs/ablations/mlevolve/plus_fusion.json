@@ -1,0 +1,17 @@
+{
+  "variant_id": "plus_fusion",
+  "system": "mlevolve",
+  "component_class": "operators",
+  "summary": "Enable cross-branch fusion while disabling evolution and aggregation.",
+  "research_question": "What is the marginal value of cross-branch fusion alone?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "plus_fusion",
+    "ablation.operator_set": "full",
+    "agent.use_evolution": false,
+    "agent.use_fusion": true,
+    "agent.use_aggregation": false
+  }
+}

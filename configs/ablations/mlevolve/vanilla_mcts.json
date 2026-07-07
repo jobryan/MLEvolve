@@ -1,0 +1,21 @@
+{
+  "variant_id": "vanilla_mcts",
+  "system": "mlevolve",
+  "component_class": "search",
+  "summary": "Use fixed UCT-style MCTS without MCGS top-K switching, stagnation triggers, fusion, or aggregation.",
+  "research_question": "What does vanilla MCTS contribute without the MCGS-specific mechanisms?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["smoke", "screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "vanilla_mcts",
+    "ablation.search_policy": "vanilla_mcts",
+    "agent.search.use_stagnation_detection": false,
+    "agent.search.explore_switch_start": 1.0,
+    "agent.search.explore_switch_end": 1.0,
+    "agent.search.min_exploration_weight": 1.0,
+    "agent.use_evolution": false,
+    "agent.use_fusion": false,
+    "agent.use_aggregation": false
+  }
+}

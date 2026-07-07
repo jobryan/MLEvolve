@@ -1,0 +1,14 @@
+{
+  "variant_id": "no_code_review",
+  "system": "mlevolve",
+  "component_class": "workflow",
+  "summary": "Disable LLM code review before execution.",
+  "research_question": "Does pre-execution code review improve validity and score enough to justify cost?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "no_code_review",
+    "agent.use_code_review": false
+  }
+}

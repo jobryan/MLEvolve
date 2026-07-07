@@ -1,0 +1,16 @@
+{
+  "variant_id": "writeup_review_off",
+  "system": "ai_scientist_v2",
+  "component_class": "paper_workflow",
+  "summary": "Disable paper writeup and review for shared-benchmark mode.",
+  "research_question": "What is the shared-benchmark baseline with paper writeup/review disabled?",
+  "inherits": ".context/external/AI-Scientist-v2/bfts_config.yaml",
+  "enabled_phases": ["smoke", "screening", "main"],
+  "cli_flags": ["--skip_writeup", "--skip_review"],
+  "overrides": {
+    "adapter.shared_benchmark": true,
+    "adapter.writeup": false,
+    "adapter.review": false,
+    "adapter.selection_policy": "default_bfts"
+  }
+}

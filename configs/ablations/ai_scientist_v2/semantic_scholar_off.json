@@ -1,0 +1,15 @@
+{
+  "variant_id": "semantic_scholar_off",
+  "system": "ai_scientist_v2",
+  "component_class": "external_tools",
+  "summary": "Disable Semantic Scholar/literature lookup controls.",
+  "research_question": "Does disabling Semantic Scholar/literature lookup matter for shared benchmark performance?",
+  "inherits": ".context/external/AI-Scientist-v2/bfts_config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "cli_flags": ["--skip_writeup", "--skip_review"],
+  "overrides": {
+    "adapter.shared_benchmark": true,
+    "adapter.semantic_scholar": false,
+    "adapter.selection_policy": "default_bfts"
+  }
+}

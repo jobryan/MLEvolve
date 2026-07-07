@@ -266,6 +266,21 @@ def clean_task_desc(task_desc: str, cfg) -> str:
         + "- Do NOT use a proxy metric as the main score for comparing solutions, ranking candidates, or selecting the best solution.\n"
         + "- The prediction target, output semantics, and post-processing used in validation must remain aligned with the required submission format.\n"
         + "- In short: task goal and metric must match the official specification; lazy task redefinition is forbidden.\n"
+        + "\n\n**TABULAR PREPROCESSING SAFETY REQUIREMENT**\n"
+        + "- For CSV/tabular tasks, inspect pandas dtypes before preprocessing and build numeric feature lists from actual numeric dtypes after dropping id/target columns.\n"
+        + "- Do NOT infer that a column is numeric from its name. Feature names like f_27 can still be object/string columns.\n"
+        + "- Apply median/mean imputation, StandardScaler, float tensors, and numeric model matrices only after object/string/category columns have been encoded or excluded.\n"
+        + "- For high-cardinality string columns, avoid one-hot/get_dummies; use bounded encodings such as ordinal/factorized values, frequency/count features, hashing, or fixed-position character features.\n"
+        + "- For short first-pass tabular runs, prefer a reliable simple baseline such as LightGBM, XGBoost, ExtraTrees/RandomForest, HistGradientBoosting, or logistic/linear models before custom TabNet-like or embedding-heavy neural architectures.\n"
+        + "- If using a custom tabular neural network, explicitly prove encoded categorical indices, embedding sizes, and concatenated tensor dimensions are bounded and consistent before training.\n"
+        + "\n\n**CROSS-DOMAIN FIRST-BASELINE SAFETY REQUIREMENT**\n"
+        + "- For short image-classification runs, use a local CPU/GPU-safe baseline first: resize images, normalize pixels, and train a small CNN or sklearn model on simple image features. Do not use torch.hub downloads or named pretrained backbones unless the exact local checkpoint path is present.\n"
+        + "- For aerial-cactus-identification specifically, the first valid baseline must use local train/test images with the CSV labels and sample submission. Do not use DINO, torch.hub, timm, transformers, pretrained checkpoints, or external downloads in the first draft. For binary PyTorch classifiers, use explicit 1-D output/target shapes such as logits = model(x).view(-1) and targets = y.float().view(-1); do not squeeze dimension 1 unless it is known to exist.\n"
+        + "- For short text-classification runs, prefer sklearn TF-IDF/character n-grams plus LogisticRegression, LinearSVC/SGDClassifier, or Naive Bayes. Do not depend on NLTK punkt/punkt_tab, spaCy model downloads, or large transformer fine-tuning before a valid submission exists.\n"
+        + "- For materials/scientific tabular tasks, start with robust CSV features. For nomad2018-predict-transparent-conductors specifically, the first valid baseline should use the numeric columns actually present in train.csv/test.csv and a simple multi-output regressor or one regressor per target; do not require geometry.xyz parsing before a valid CSV-only submission exists.\n"
+        + "- If geometry.xyz files are used, parse defensively by skipping comment/header lines and reading only rows shaped like element + 3 numeric coordinates; do not assume the first line is always an atom count. Do not access row['lv1'], row['lv2'], row['lv3'], row['alpha'], row['beta'], or row['gamma'] unless those names are confirmed in row.index because lattice data may not be CSV columns in the prepared benchmark.\n"
+        + "- Use recent sklearn-compatible APIs such as OneHotEncoder(sparse_output=False, handle_unknown='ignore'), with a fallback to sparse=False only if needed.\n"
+        + "- If CUDA is unavailable or memory is limited, prefer a simple model that finishes and exports ./submission/submission.csv over an ambitious architecture that times out.\n"
         + "=" * 60
     )
 

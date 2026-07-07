@@ -1,0 +1,16 @@
+{
+  "variant_id": "all_strong",
+  "system": "mlevolve",
+  "component_class": "model_routing",
+  "summary": "Route code and feedback roles to the strong model profile.",
+  "research_question": "What is the upper quality anchor when all major roles use the strong model profile?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main", "confirmation"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "all_strong",
+    "ablation.model_profile": "all_strong",
+    "agent.code.model": "${oc.env:MLEVOLVE_STRONG_CODE_MODEL,gpt-4.1}",
+    "agent.feedback.model": "${oc.env:MLEVOLVE_STRONG_FEEDBACK_MODEL,gpt-4.1}"
+  }
+}

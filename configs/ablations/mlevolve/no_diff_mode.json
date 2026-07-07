@@ -1,0 +1,14 @@
+{
+  "variant_id": "no_diff_mode",
+  "system": "mlevolve",
+  "component_class": "workflow",
+  "summary": "Use full rewrites instead of diff-based code generation.",
+  "research_question": "Does diff mode improve iteration reliability compared with full rewrites?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "no_diff_mode",
+    "agent.use_diff_mode": false
+  }
+}

@@ -60,6 +60,7 @@ agent:
   # --- Code gen mode ---
   use_diff_mode: True                 # Multi-Mode Codegen
   use_stepwise_generation: True       # Multi-Mode Codegen
+  use_code_review: True               # LLM code review before execution
 
   # --- Triggered-action master switches (ablation use) ---
   use_evolution: True                # intra-branch evolution on stagnation
@@ -164,3 +165,26 @@ coldstart:
   task_json_path: "engine/coldstart/competition_tag_classified.json"
   model_json_path: "engine/coldstart/models_guidance_classified.json"
   description: ""
+
+# ============================================================
+#  Ablation export
+# ============================================================
+ablation:
+  enabled: False
+  schema_version: "1.0"
+  run_id: ""
+  variant_id: "manual"
+  benchmark_track: "diagnostic"
+  task_id: ""
+  phase: "smoke"
+  task_manifest_version: ""
+  variant_registry_version: ""
+  search_policy: "mcgs"
+  child_memory: True
+  global_memory_filter: "all"
+  dissimilar_guidance: False
+  diversity_mode: "default"
+  novelty_lambda: 0.0
+  novelty_in_reward: False
+  operator_set: "full"
+  model_profile: "default"

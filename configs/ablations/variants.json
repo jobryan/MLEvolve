@@ -1,0 +1,381 @@
+{
+  "variant_registry_version": "ablation-variants-v1",
+  "variants": [
+    {
+      "variant_id": "default_mcgs",
+      "system": "mlevolve",
+      "component_class": "baseline",
+      "summary": "MLEvolve default MCGS configuration.",
+      "config_path": "configs/ablations/mlevolve/default_mcgs.json",
+      "enabled_phases": ["smoke", "screening", "main", "confirmation"]
+    },
+    {
+      "variant_id": "no_memory",
+      "system": "mlevolve",
+      "component_class": "memory",
+      "summary": "Disable logged experiment memory while keeping non-experiment cold-start guidance available.",
+      "config_path": "configs/ablations/mlevolve/no_memory.json",
+      "enabled_phases": ["smoke", "screening", "main"]
+    },
+    {
+      "variant_id": "child_history_only",
+      "system": "mlevolve",
+      "component_class": "memory",
+      "summary": "Use local parent/child experiment history but disable global retrieval.",
+      "config_path": "configs/ablations/mlevolve/child_history_only.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "global_retrieval",
+      "system": "mlevolve",
+      "component_class": "memory",
+      "summary": "Use global retrieval while suppressing local child-history prompt injection.",
+      "config_path": "configs/ablations/mlevolve/global_retrieval.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "success_memory_only",
+      "system": "mlevolve",
+      "component_class": "memory",
+      "summary": "Use only successful global-memory records while suppressing local child-history prompt injection.",
+      "config_path": "configs/ablations/mlevolve/success_memory_only.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "failure_memory_only",
+      "system": "mlevolve",
+      "component_class": "memory",
+      "summary": "Use only failed/worsened global-memory records while suppressing local child-history prompt injection.",
+      "config_path": "configs/ablations/mlevolve/failure_memory_only.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "dissimilar_guidance",
+      "system": "mlevolve",
+      "component_class": "memory",
+      "summary": "Add dissimilar global-memory retrieval as explicit diversity guidance.",
+      "config_path": "configs/ablations/mlevolve/dissimilar_guidance.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "linear_chain",
+      "system": "mlevolve",
+      "component_class": "search",
+      "summary": "Reduce search to one active improvement chain.",
+      "config_path": "configs/ablations/mlevolve/linear_chain.json",
+      "enabled_phases": ["smoke", "screening", "main"]
+    },
+    {
+      "variant_id": "greedy_tree",
+      "system": "mlevolve",
+      "component_class": "search",
+      "summary": "Always expand the best valid node without UCT exploration or top-K randomness.",
+      "config_path": "configs/ablations/mlevolve/greedy_tree.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "vanilla_mcts",
+      "system": "mlevolve",
+      "component_class": "search",
+      "summary": "Use fixed UCT-style MCTS without MCGS top-K switching, stagnation triggers, fusion, or aggregation.",
+      "config_path": "configs/ablations/mlevolve/vanilla_mcts.json",
+      "enabled_phases": ["smoke", "screening", "main"]
+    },
+    {
+      "variant_id": "progressive_mcts",
+      "system": "mlevolve",
+      "component_class": "search",
+      "summary": "Use decayed UCT MCTS without MCGS top-K switching, stagnation triggers, fusion, or aggregation.",
+      "config_path": "configs/ablations/mlevolve/progressive_mcts.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "no_fusion_evolution",
+      "system": "mlevolve",
+      "component_class": "operators",
+      "summary": "Disable evolution and cross-branch fusion while preserving standard drafting, debugging, and improvement.",
+      "config_path": "configs/ablations/mlevolve/no_fusion_evolution.json",
+      "enabled_phases": ["smoke", "screening", "main"]
+    },
+    {
+      "variant_id": "aide_operator_set",
+      "system": "mlevolve",
+      "component_class": "operators",
+      "summary": "Restrict operators to Draft, Debug, Improve, and summary memory.",
+      "config_path": "configs/ablations/mlevolve/aide_operator_set.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "plus_evolution",
+      "system": "mlevolve",
+      "component_class": "operators",
+      "summary": "Enable evolution while disabling fusion and aggregation.",
+      "config_path": "configs/ablations/mlevolve/plus_evolution.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "plus_fusion",
+      "system": "mlevolve",
+      "component_class": "operators",
+      "summary": "Enable cross-branch fusion while disabling evolution and aggregation.",
+      "config_path": "configs/ablations/mlevolve/plus_fusion.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "plus_aggregation",
+      "system": "mlevolve",
+      "component_class": "operators",
+      "summary": "Enable multi-branch aggregation while disabling evolution and cross-branch fusion.",
+      "config_path": "configs/ablations/mlevolve/plus_aggregation.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "single_shot",
+      "system": "mlevolve",
+      "component_class": "workflow",
+      "summary": "Generate one draft solution with no iterative improvement budget.",
+      "config_path": "configs/ablations/mlevolve/single_shot.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "stepwise_diff",
+      "system": "mlevolve",
+      "component_class": "workflow",
+      "summary": "Explicitly pin stepwise generation plus diff editing.",
+      "config_path": "configs/ablations/mlevolve/stepwise_diff.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "no_stepwise_generation",
+      "system": "mlevolve",
+      "component_class": "workflow",
+      "summary": "Disable stepwise plan/code generation while preserving diff mode.",
+      "config_path": "configs/ablations/mlevolve/no_stepwise_generation.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "no_diff_mode",
+      "system": "mlevolve",
+      "component_class": "workflow",
+      "summary": "Use full rewrites instead of diff-based code generation.",
+      "config_path": "configs/ablations/mlevolve/no_diff_mode.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "no_code_review",
+      "system": "mlevolve",
+      "component_class": "workflow",
+      "summary": "Disable LLM code review before execution.",
+      "config_path": "configs/ablations/mlevolve/no_code_review.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "no_leakage_check",
+      "system": "mlevolve",
+      "component_class": "workflow",
+      "summary": "Disable the data-leakage check while preserving evaluator hardening.",
+      "config_path": "configs/ablations/mlevolve/no_leakage_check.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "no_cold_start",
+      "system": "mlevolve",
+      "component_class": "workflow",
+      "summary": "Disable cold-start task/model guidance while preserving experiment memory.",
+      "config_path": "configs/ablations/mlevolve/no_cold_start.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "diversity_ablated",
+      "system": "mlevolve",
+      "component_class": "diversity",
+      "summary": "Disable diversity-specific guidance and novelty scoring.",
+      "config_path": "configs/ablations/mlevolve/diversity_ablated.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "diversity_high",
+      "system": "mlevolve",
+      "component_class": "diversity",
+      "summary": "Enable high-diversity guidance and dissimilar retrieval.",
+      "config_path": "configs/ablations/mlevolve/diversity_high.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "novelty_lambda_005",
+      "system": "mlevolve",
+      "component_class": "novelty",
+      "summary": "Add a small novelty bonus to selection and reward accounting.",
+      "config_path": "configs/ablations/mlevolve/novelty_lambda_005.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "novelty_lambda_010",
+      "system": "mlevolve",
+      "component_class": "novelty",
+      "summary": "Add the planned default novelty bonus to selection and reward accounting.",
+      "config_path": "configs/ablations/mlevolve/novelty_lambda_010.json",
+      "enabled_phases": ["smoke", "screening", "main", "confirmation"]
+    },
+    {
+      "variant_id": "novelty_lambda_020",
+      "system": "mlevolve",
+      "component_class": "novelty",
+      "summary": "Add a medium novelty bonus to selection and reward accounting.",
+      "config_path": "configs/ablations/mlevolve/novelty_lambda_020.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "novelty_lambda_040",
+      "system": "mlevolve",
+      "component_class": "novelty",
+      "summary": "Add a high novelty bonus to selection and reward accounting.",
+      "config_path": "configs/ablations/mlevolve/novelty_lambda_040.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "all_strong",
+      "system": "mlevolve",
+      "component_class": "model_routing",
+      "summary": "Route code and feedback roles to the strong model profile.",
+      "config_path": "configs/ablations/mlevolve/all_strong.json",
+      "enabled_phases": ["screening", "main", "confirmation"]
+    },
+    {
+      "variant_id": "strong_code_cheap_feedback",
+      "system": "mlevolve",
+      "component_class": "model_routing",
+      "summary": "Use the strong model for code generation and a cheaper model for feedback/review roles.",
+      "config_path": "configs/ablations/mlevolve/strong_code_cheap_feedback.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "stage_as_operator_default",
+      "system": "ai_scientist_v2",
+      "component_class": "baseline",
+      "summary": "AI Scientist v2 shared-benchmark adapter with stages mapped to shared operators.",
+      "config_path": "configs/ablations/ai_scientist_v2/stage_as_operator_default.json",
+      "enabled_phases": ["smoke", "screening", "main", "confirmation"]
+    },
+    {
+      "variant_id": "no_journal_memory",
+      "system": "ai_scientist_v2",
+      "component_class": "memory",
+      "summary": "Disable journal-memory summaries in the adapter controls.",
+      "config_path": "configs/ablations/ai_scientist_v2/no_journal_memory.json",
+      "enabled_phases": ["smoke", "screening", "main"]
+    },
+    {
+      "variant_id": "semantic_scholar_off",
+      "system": "ai_scientist_v2",
+      "component_class": "external_tools",
+      "summary": "Disable Semantic Scholar/literature lookup controls.",
+      "config_path": "configs/ablations/ai_scientist_v2/semantic_scholar_off.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "stage2_off",
+      "system": "ai_scientist_v2",
+      "component_class": "workflow",
+      "summary": "Disable the baseline-tuning stage.",
+      "config_path": "configs/ablations/ai_scientist_v2/stage2_off.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "draft_debug_improve_only",
+      "system": "ai_scientist_v2",
+      "component_class": "workflow",
+      "summary": "Restrict AI Scientist v2 to initial implementation, debug, and baseline improvement behavior.",
+      "config_path": "configs/ablations/ai_scientist_v2/draft_debug_improve_only.json",
+      "enabled_phases": ["smoke", "screening", "main"]
+    },
+    {
+      "variant_id": "creative_research_disabled",
+      "system": "ai_scientist_v2",
+      "component_class": "workflow",
+      "summary": "Disable the creative research stage.",
+      "config_path": "configs/ablations/ai_scientist_v2/creative_research_disabled.json",
+      "enabled_phases": ["smoke", "screening", "main"]
+    },
+    {
+      "variant_id": "ablation_disabled",
+      "system": "ai_scientist_v2",
+      "component_class": "workflow",
+      "summary": "Disable the stage-4 ablation pass.",
+      "config_path": "configs/ablations/ai_scientist_v2/ablation_disabled.json",
+      "enabled_phases": ["smoke", "screening", "main"]
+    },
+    {
+      "variant_id": "vlm_feedback_off",
+      "system": "ai_scientist_v2",
+      "component_class": "feedback",
+      "summary": "Disable plot/VLM feedback controls.",
+      "config_path": "configs/ablations/ai_scientist_v2/vlm_feedback_off.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "writeup_review_off",
+      "system": "ai_scientist_v2",
+      "component_class": "paper_workflow",
+      "summary": "Disable paper writeup and review for shared-benchmark mode.",
+      "config_path": "configs/ablations/ai_scientist_v2/writeup_review_off.json",
+      "enabled_phases": ["smoke", "screening", "main"]
+    },
+    {
+      "variant_id": "linear_stage",
+      "system": "ai_scientist_v2",
+      "component_class": "search",
+      "summary": "Use linear stage progression instead of default BFTS selection.",
+      "config_path": "configs/ablations/ai_scientist_v2/linear_stage.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "greedy_selection",
+      "system": "ai_scientist_v2",
+      "component_class": "search",
+      "summary": "Use greedy best-node selection.",
+      "config_path": "configs/ablations/ai_scientist_v2/greedy_selection.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "debug_off_greedy",
+      "system": "ai_scientist_v2",
+      "component_class": "search_debug",
+      "summary": "Use greedy selection with debugging disabled.",
+      "config_path": "configs/ablations/ai_scientist_v2/debug_off_greedy.json",
+      "enabled_phases": ["smoke", "screening", "main"]
+    },
+    {
+      "variant_id": "diversity_ablated",
+      "system": "ai_scientist_v2",
+      "component_class": "diversity",
+      "summary": "Disable diversity-specific prompting and filtering.",
+      "config_path": "configs/ablations/ai_scientist_v2/diversity_ablated.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "architecture_entropy",
+      "system": "ai_scientist_v2",
+      "component_class": "diversity",
+      "summary": "Encourage architecture-family entropy in idea and implementation prompts.",
+      "config_path": "configs/ablations/ai_scientist_v2/architecture_entropy.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "novelty_filtering",
+      "system": "ai_scientist_v2",
+      "component_class": "diversity",
+      "summary": "Enable novelty filtering over fixed ideas and generated implementation plans.",
+      "config_path": "configs/ablations/ai_scientist_v2/novelty_filtering.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "hardened_evaluator",
+      "system": "ai_scientist_v2",
+      "component_class": "evaluator",
+      "summary": "Require strict evaluator audit before node promotion.",
+      "config_path": "configs/ablations/ai_scientist_v2/hardened_evaluator.json",
+      "enabled_phases": ["smoke", "screening", "main", "confirmation"]
+    }
+  ]
+}

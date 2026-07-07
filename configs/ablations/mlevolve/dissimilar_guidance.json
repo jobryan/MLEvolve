@@ -1,0 +1,17 @@
+{
+  "variant_id": "dissimilar_guidance",
+  "system": "mlevolve",
+  "component_class": "memory",
+  "summary": "Add dissimilar global-memory retrieval as explicit diversity guidance.",
+  "research_question": "Does retrieval of dissimilar prior attempts increase useful exploration beyond similar-memory retrieval?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "dissimilar_guidance",
+    "ablation.child_memory": true,
+    "ablation.global_memory_filter": "all",
+    "ablation.dissimilar_guidance": true,
+    "agent.use_global_memory": true
+  }
+}

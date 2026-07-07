@@ -114,6 +114,7 @@ class AgentConfig:
     decay: DecayConfig
     use_diff_mode: bool = True
     use_stepwise_generation: bool = True
+    use_code_review: bool = True
     use_evolution: bool = True
     use_fusion: bool = True
     use_aggregation: bool = True
@@ -135,6 +136,28 @@ class ColdstartConfig:
 @dataclass
 class InitSolutionConfig:
     use: bool = False
+
+
+@dataclass
+class AblationConfig:
+    enabled: bool = False
+    schema_version: str = "1.0"
+    run_id: str = ""
+    variant_id: str = "manual"
+    benchmark_track: str = "diagnostic"
+    task_id: str = ""
+    phase: str = "smoke"
+    task_manifest_version: str = ""
+    variant_registry_version: str = ""
+    search_policy: str = "mcgs"
+    child_memory: bool = True
+    global_memory_filter: str = "all"
+    dissimilar_guidance: bool = False
+    diversity_mode: str = "default"
+    novelty_lambda: float = 0.0
+    novelty_in_reward: bool = False
+    operator_set: str = "full"
+    model_profile: str = "default"
 
 
 @dataclass
@@ -168,6 +191,7 @@ class Config(Hashable):
 
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
+    ablation: AblationConfig = field(default_factory=AblationConfig)
 
 
 def _get_next_logindex(dir: Path) -> int:

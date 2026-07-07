@@ -1,0 +1,15 @@
+{
+  "variant_id": "stepwise_diff",
+  "system": "mlevolve",
+  "component_class": "workflow",
+  "summary": "Explicitly pin stepwise generation plus diff editing.",
+  "research_question": "How does the current stepwise-plus-diff workflow behave as an isolated workflow anchor?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "stepwise_diff",
+    "agent.use_diff_mode": true,
+    "agent.use_stepwise_generation": true
+  }
+}

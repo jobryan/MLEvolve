@@ -14,6 +14,7 @@ from agents.prompts import (
 from agents.coder.diff_coder import SearchReplacePatcher, DIFF_SYS_FORMAT
 from agents.planner import build_chat_prompt_for_model
 from agents.triggers import register_node
+from agents.memory.ablation_controls import global_memory_available, retrieve_global_memory
 
 logger = logging.getLogger("MLEvolve")
 
@@ -115,19 +116,21 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
     prompt["Instructions"]["Implementation guideline"].extend(internet_clarification)
 
     debug_memory_guidance = ""
-    if agent.global_memory and len(agent.global_memory.records) > 0:
+    if global_memory_available(agent):
         current_error = parent_node.term_out or getattr(parent_node, 'execution_output', '')
 
         if current_error and current_error.strip():
             try:
                 logger.debug(f"[Debug] Retrieving similar errors, query_length={len(current_error)}, memory_records={len(agent.global_memory.records)}")
-                similar_fixes = agent.global_memory.retrieve_similar_records(
+                similar_fixes = retrieve_global_memory(
+                    agent,
                     query_text=current_error,
                     top_k=2,
                     alpha=0.5,
                     dissimilar=False,
                     label_filter=1,
                     stage_filter="debug",
+                    event_type="debug_global_memory",
                 )
 
                 if similar_fixes:

@@ -1,0 +1,16 @@
+{
+  "variant_id": "failure_memory_only",
+  "system": "mlevolve",
+  "component_class": "memory",
+  "summary": "Use only failed/worsened global-memory records while suppressing local child-history prompt injection.",
+  "research_question": "Does explicit failure memory reduce repeated mistakes enough to improve performance or validity?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "failure_memory_only",
+    "ablation.child_memory": false,
+    "ablation.global_memory_filter": "failure_only",
+    "agent.use_global_memory": true
+  }
+}

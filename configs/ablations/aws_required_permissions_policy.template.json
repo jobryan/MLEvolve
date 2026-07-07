@@ -1,0 +1,171 @@
+{
+  "schema_version": "1.0",
+  "purpose": "IAM policy template for provisioning and running the MLEvolve / AI Scientist v2 AWS ablation worker.",
+  "placeholders": {
+    "ACCOUNT_ID": "058264252788",
+    "REGION": "us-east-1",
+    "BATCH_QUEUE_NAME": "replace with the approved AWS Batch job queue name",
+    "BATCH_JOB_DEFINITION_NAME": "mlevolve-ai-scientist-v2-ablation-worker",
+    "ECR_REPOSITORY_NAME": "replace with the approved ECR repository name",
+    "BATCH_EXECUTION_ROLE_NAME": "replace with the Batch execution role name",
+    "BATCH_JOB_ROLE_NAME": "replace with the Batch job role name",
+    "SECRET_PREFIX": "replace with the Secrets Manager prefix used for Kaggle/model-provider secrets"
+  },
+  "submitter_policy_document": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "AblationS3Artifacts",
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetBucketLocation",
+          "s3:ListBucket"
+        ],
+        "Resource": "arn:aws:s3:::autoresearch-experiments-058264252788-us-east-1",
+        "Condition": {
+          "StringLike": {
+            "s3:prefix": [
+              "mlevolve-ai-scientist-v2-ablation/*"
+            ]
+          }
+        }
+      },
+      {
+        "Sid": "AblationS3Objects",
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:AbortMultipartUpload",
+          "s3:ListMultipartUploadParts"
+        ],
+        "Resource": "arn:aws:s3:::autoresearch-experiments-058264252788-us-east-1/mlevolve-ai-scientist-v2-ablation/*"
+      },
+      {
+        "Sid": "AblationBatchSubmitAndInspect",
+        "Effect": "Allow",
+        "Action": [
+          "batch:DescribeComputeEnvironments",
+          "batch:DescribeJobDefinitions",
+          "batch:DescribeJobQueues",
+          "batch:DescribeJobs",
+          "batch:ListJobs",
+          "batch:SubmitJob",
+          "batch:TerminateJob",
+          "batch:CancelJob"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "AblationBatchRegisterIfCodexOwnsSetup",
+        "Effect": "Allow",
+        "Action": [
+          "batch:RegisterJobDefinition",
+          "batch:DeregisterJobDefinition"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "AblationEcrPushAndInspect",
+        "Effect": "Allow",
+        "Action": [
+          "ecr:GetAuthorizationToken"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "AblationEcrRepositoryPush",
+        "Effect": "Allow",
+        "Action": [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:BatchGetImage",
+          "ecr:CompleteLayerUpload",
+          "ecr:CreateRepository",
+          "ecr:DescribeImages",
+          "ecr:DescribeRepositories",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:InitiateLayerUpload",
+          "ecr:ListImages",
+          "ecr:PutImage",
+          "ecr:UploadLayerPart"
+        ],
+        "Resource": "arn:aws:ecr:us-east-1:058264252788:repository/<ECR_REPOSITORY_NAME>"
+      },
+      {
+        "Sid": "AblationSecretSetupAndInspect",
+        "Effect": "Allow",
+        "Action": [
+          "secretsmanager:CreateSecret",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:TagResource"
+        ],
+        "Resource": "arn:aws:secretsmanager:us-east-1:058264252788:secret:<SECRET_PREFIX>*"
+      },
+      {
+        "Sid": "AblationPassBatchRoles",
+        "Effect": "Allow",
+        "Action": [
+          "iam:GetRole",
+          "iam:PassRole"
+        ],
+        "Resource": [
+          "arn:aws:iam::058264252788:role/<BATCH_EXECUTION_ROLE_NAME>",
+          "arn:aws:iam::058264252788:role/<BATCH_JOB_ROLE_NAME>"
+        ],
+        "Condition": {
+          "StringEquals": {
+            "iam:PassedToService": [
+              "batch.amazonaws.com",
+              "ecs-tasks.amazonaws.com"
+            ]
+          }
+        }
+      },
+      {
+        "Sid": "AblationCloudWatchLogsInspect",
+        "Effect": "Allow",
+        "Action": [
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams",
+          "logs:GetLogEvents"
+        ],
+        "Resource": [
+          "arn:aws:logs:us-east-1:058264252788:log-group:/aws/batch/mlevolve-ai-scientist-v2-ablation",
+          "arn:aws:logs:us-east-1:058264252788:log-group:/aws/batch/mlevolve-ai-scientist-v2-ablation:*"
+        ]
+      }
+    ]
+  },
+  "worker_job_role_policy_document": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "WorkerS3Artifacts",
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:AbortMultipartUpload",
+          "s3:ListMultipartUploadParts"
+        ],
+        "Resource": "arn:aws:s3:::autoresearch-experiments-058264252788-us-east-1/mlevolve-ai-scientist-v2-ablation/*"
+      },
+      {
+        "Sid": "WorkerReadRuntimeSecrets",
+        "Effect": "Allow",
+        "Action": [
+          "secretsmanager:GetSecretValue"
+        ],
+        "Resource": "arn:aws:secretsmanager:us-east-1:058264252788:secret:<SECRET_PREFIX>*"
+      }
+    ]
+  },
+  "batch_execution_role_notes": [
+    "The Batch execution role must be able to pull the worker image from ECR.",
+    "The Batch execution role must be able to create/write CloudWatch Logs streams for /aws/batch/mlevolve-ai-scientist-v2-ablation.",
+    "If Secrets Manager injection is configured through containerProperties.secrets, the execution role may also need secretsmanager:GetSecretValue for those exact secret ARNs depending on the Batch/ECS execution mode."
+  ]
+}

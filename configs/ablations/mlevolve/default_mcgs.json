@@ -1,0 +1,33 @@
+{
+  "variant_id": "default_mcgs",
+  "system": "mlevolve",
+  "component_class": "baseline",
+  "summary": "MLEvolve default MCGS configuration.",
+  "research_question": "How does the current MLEvolve configuration perform under the shared ablation harness?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": [
+    "smoke",
+    "screening",
+    "main",
+    "confirmation"
+  ],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "default_mcgs",
+    "ablation.search_policy": "mcgs",
+    "ablation.child_memory": true,
+    "ablation.global_memory_filter": "all",
+    "ablation.dissimilar_guidance": false,
+    "ablation.diversity_mode": "default",
+    "ablation.novelty_lambda": 0.0,
+    "ablation.operator_set": "full",
+    "ablation.model_profile": "default",
+    "agent.use_global_memory": true,
+    "agent.use_diff_mode": true,
+    "agent.use_stepwise_generation": true,
+    "agent.use_evolution": true,
+    "agent.use_fusion": true,
+    "agent.use_aggregation": true,
+    "coldstart.use_coldstart": true
+  }
+}

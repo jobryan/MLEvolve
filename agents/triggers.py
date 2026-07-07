@@ -1,6 +1,8 @@
 import logging
 
 from engine.search_node import SearchNode
+from utils.ablation_export import maybe_get_exporter
+from agents.memory.ablation_controls import reset_memory_events
 
 from engine.conditions import should_trigger_branch_fusion
 
@@ -74,6 +76,14 @@ def register_node(agent, node: SearchNode, prompt, parent_node=None, new_branch:
 
     node.prompt_input = agent._serialize_prompt(prompt)
     node.created_time = time.strftime("%Y-%m-%dT%H:%M:%S")
+    selection_rationale = getattr(agent, "last_selection_rationale", None)
+    if selection_rationale:
+        node.selection_rationale = dict(selection_rationale)
+    node.memory_events = list(getattr(agent, "current_memory_events", []))
+    reset_memory_events(agent)
+    exporter = maybe_get_exporter(agent)
+    if exporter:
+        exporter.save_prompt_and_code(node)
 
     if new_branch:
         node.branch_id = agent.next_branch_id

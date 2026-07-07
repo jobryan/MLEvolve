@@ -1,0 +1,21 @@
+{
+  "variant_id": "linear_chain",
+  "system": "mlevolve",
+  "component_class": "search",
+  "summary": "Reduce search to one active improvement chain.",
+  "research_question": "What is lost when graph search is reduced to a single linear chain?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["smoke", "screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "linear_chain",
+    "ablation.search_policy": "linear_chain",
+    "ablation.operator_set": "draft_debug_improve",
+    "agent.initial_drafts": 1,
+    "agent.search.num_drafts": 1,
+    "agent.search.parallel_search_num": 1,
+    "agent.use_evolution": false,
+    "agent.use_fusion": false,
+    "agent.use_aggregation": false
+  }
+}

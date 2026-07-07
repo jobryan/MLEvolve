@@ -95,6 +95,20 @@ def _build_messages(system_message: str | None, user_message: str | None, model:
     return messages
 
 
+# Reasoning-family OpenAI models (gpt-5.x, o-series) reject `max_tokens`
+# (requiring `max_completion_tokens`) and only accept the default temperature.
+_STRICT_COMPLETION_PARAM_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+
+def _normalize_completion_params(params: dict[str, Any]) -> dict[str, Any]:
+    model = str(params.get("model", "")).lower()
+    if model.startswith(_STRICT_COMPLETION_PARAM_PREFIXES):
+        if "max_tokens" in params:
+            params["max_completion_tokens"] = params.pop("max_tokens")
+        params["temperature"] = 1.0
+    return params
+
+
 def query(
     system_message: str | None,
     user_message: str | None,
@@ -153,6 +167,8 @@ def query(
         params["tools"] = [tool_dict]
         if supports_tool_choice_required(model):
             params["tool_choice"] = func_spec.openai_tool_choice_dict
+
+    params = _normalize_completion_params(params)
 
     t0 = time.time()
     logger.info(f"Querying OpenAI-compatible API with model: {model}")
@@ -286,6 +302,8 @@ def generate(
             }
         else:
             params["response_format"] = {"type": "json_object"}
+
+    params = _normalize_completion_params(params)
 
     logger.info(f"generate messages: {len(messages)} turns", extra={"verbose": True})
     for attempt in range(max_retries):

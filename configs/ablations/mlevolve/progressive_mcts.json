@@ -1,0 +1,21 @@
+{
+  "variant_id": "progressive_mcts",
+  "system": "mlevolve",
+  "component_class": "search",
+  "summary": "Use decayed UCT MCTS without MCGS top-K switching, stagnation triggers, fusion, or aggregation.",
+  "research_question": "Does progressive exploration decay help before adding MCGS top-K and graph-specific mechanisms?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "progressive_mcts",
+    "ablation.search_policy": "progressive_mcts",
+    "agent.search.use_stagnation_detection": false,
+    "agent.search.explore_switch_start": 1.0,
+    "agent.search.explore_switch_end": 1.0,
+    "agent.search.min_exploration_weight": 1.0,
+    "agent.use_evolution": false,
+    "agent.use_fusion": false,
+    "agent.use_aggregation": false
+  }
+}

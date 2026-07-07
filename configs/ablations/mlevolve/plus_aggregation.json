@@ -1,0 +1,17 @@
+{
+  "variant_id": "plus_aggregation",
+  "system": "mlevolve",
+  "component_class": "operators",
+  "summary": "Enable multi-branch aggregation while disabling evolution and cross-branch fusion.",
+  "research_question": "What is the marginal value of root-level aggregation alone?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "plus_aggregation",
+    "ablation.operator_set": "full",
+    "agent.use_evolution": false,
+    "agent.use_fusion": false,
+    "agent.use_aggregation": true
+  }
+}

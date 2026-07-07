@@ -19,6 +19,8 @@ from agents.planner import run_planner, build_planner_task, build_planner_suffix
 from agents.coder import plan_and_code_query
 from agents.coder.diff_coder import diff_generate_and_apply
 from agents.triggers import register_node
+from agents.memory.ablation_controls import get_child_memory
+from agents.workflow_controls import diversity_prompts_enabled
 
 logger = logging.getLogger("MLEvolve")
 
@@ -57,7 +59,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
     prompt: Any = {
         "Introduction": introduction,
         "Task description": agent.task_desc,
-        "Memory": parent_node.fetch_child_memory(),
+        "Memory": get_child_memory(agent, parent_node, source="evolution_child_history"),
         "Branch Evolution History": branch_trajectory,
         "Instructions": {},
     }
@@ -173,15 +175,21 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
             ],
         }
 
+    evolution_guidelines = [
+        "- Propose a single, specific, actionable improvement (atomic change for controlled experiment).\n",
+        "- When proposing the design, take the Memory section into account.\n",
+    ]
+    if diversity_prompts_enabled(agent):
+        evolution_guidelines.append(
+            "- Your improvement must be distinctly different from existing attempts in the Memory section.\n"
+        )
+    evolution_guidelines += [
+        "- Pay special attention to the Branch Evolution History section, which shows the evolution path of your current approach. From this historical trajectory, extract both successful patterns and failed experiences to guide your improvement strategy.\n",
+        "- Your plan should be concise but comprehensive, naturally reflecting your reasoning process (WHY previous changes worked/failed, HOW you'll build on that, WHAT you'll change).\n",
+        "- Don't suggest to do EDA.\n",
+    ]
     prompt["Instructions"] |= {
-        "Solution improvement sketch guideline": [
-            "- Propose a single, specific, actionable improvement (atomic change for controlled experiment).\n",
-            "- When proposing the design, take the Memory section into account.\n",
-            "- Your improvement must be distinctly different from existing attempts in the Memory section.\n",
-            "- Pay special attention to the Branch Evolution History section, which shows the evolution path of your current approach. From this historical trajectory, extract both successful patterns and failed experiences to guide your improvement strategy.\n",
-            "- Your plan should be concise but comprehensive, naturally reflecting your reasoning process (WHY previous changes worked/failed, HOW you'll build on that, WHAT you'll change).\n",
-            "- Don't suggest to do EDA.\n",
-        ],
+        "Solution improvement sketch guideline": evolution_guidelines,
     }
     prompt["Instructions"] |= ROBUSTNESS_GENERALIZATION_STRATEGY
     prompt["Instructions"] |= get_impl_guideline_from_agent(agent)
