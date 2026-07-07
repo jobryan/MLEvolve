@@ -1,100 +1,61 @@
 # MLEvolve / AI Scientist v2 Ablation Summary
 
-Status: scaffolded; empirical recommendations pending live experiments on target execution hosts
-Date: 2026-06-23
+Status: **final for screening scope** — all planned execution complete; recommendations below are grader-backed at screening confidence
+Date: 2026-07-07
+Anchor: commit `602291e` + worker patch `tranche2_worker_patch_20260706_v3.tar.gz` (sha256 `7f01a911…`) + image `sha256:5c9f3e82…`
 
-## Objective
+## Evidence base
 
-Determine how MLEvolve and AI Scientist v2 component choices affect research output and performance under comparable benchmark conditions.
+All scores are held-out MLE-bench grader results (`mlebench grade_csv`), never agent-side validation metrics. Two matched-budget regimes on CPU-only workers, gpt-4.1 anchor:
 
-The study must produce defensible recommendations for:
+| Regime | Source | Graded-valid rows |
+|---|---|---|
+| 10-node / 50-min ("screening") | Tranche 2x fleet (149 jobs; 68 executed before the $50/day cost-gate stop) | 49 (31 AIS, 18 MLE) |
+| 3-node / 30-min ("reduced") | Recovery v1 batches 1–5 (68 rows) | 48 |
+| Backfill | Tranche 1 post-hoc grading | 11 (+1 grader-rejected) |
 
-- memory
-- search
-- workflow decomposition
-- model routing
-- diversity and novelty
-- operators
-- evaluator hardening
+Paired comparisons are same task+seed vs the system default; bootstrap CIs (4,000 resamples) over normalized higher-is-better deltas: `.context/ablation/aws_jobs/final_cross_batch_stats_2026-07-07.json`. Rows cancelled unrun by the cost gate are excluded from validity denominators; wall-clock timeouts are counted as outcomes.
 
-Each final recommendation must be one of `keep`, `remove`, `modify`, or `needs more evidence`.
+## Headline findings
 
-## Current Execution Status
+1. **System comparison is regime-dependent, not absolute.** Where MLEvolve completes, it beats AI Scientist v2 on grader score (NOMAD 0.0620 vs 0.0895 RMSLE; Aerial 0.9996 vs 0.9963 AUC). But at the 10-node budget its validity was ~44% vs ~97% for AIS (0 valid MLE Spooky rows); at the reduced budget MLE validity recovers (NOMAD 10/12). AIS packs smaller, safer experiments; MLEvolve searches deeper and wins when it lands.
+2. **AI Scientist v2's paper-pipeline stages do not earn their keep on benchmark tasks: `draft_debug_improve_only` significantly beats the full 4-stage default** (+0.022 mean normalized delta, 95% CI [+0.004, +0.043], n=6 paired cells, 9/9 valid). This is the single clearest component result of the study.
+3. **MLEvolve's search machinery justifies itself:** `vanilla_mcts` is significantly worse than default MCGS (CI excludes 0), `linear_chain` nearly so (mean −0.0030, CI [−0.0057, +0.0001]), `greedy_tree` neutral-negative, and removing fusion/evolution trends negative (mean −0.013). Nothing simpler matched MCGS.
+4. **Memory matters most under tight budgets:** `no_memory` lost every reduced-regime pairing (−0.025 mean, CI excludes 0) and had the worst 10-node validity (2/8). `global_retrieval` is the best-behaved memory variant (mildly positive both regimes; best validity 5/6). AIS journal memory is neutral within noise.
+5. **Strong models don't pay for themselves here:** `all_strong` (gpt-5.5 code+feedback) is neutral-to-negative vs the gpt-4.1 anchor in both regimes despite ~4× token price; `strong_code_cheap_feedback` (gpt-5.5 code + gpt-4.1-mini feedback) is the only routing config with a positive trend (mean +0.0018, CI [−0.0002, +0.0033]).
+6. **Diversity prompts flip sign by regime:** removing them looked mildly positive at 10 nodes (n=2) but lost 0–4 at the reduced budget (CI excludes 0). Under short budgets, diversity instructions help; selection-only novelty (λ=0.05) is indistinguishable from default.
+7. **Evaluator hardening is vindicated by the study's own record:** one agent-"valid" submission was rejected by the grader; agent validation scores diverged from grader scores repeatedly (e.g., AIS Spooky 0.518 validation vs 0.508 graded; MLE tranche-1 denoising 0.06-class validation vs 0.30 graded). Proxy-only selection would have promoted wrong candidates.
 
-Live empirical execution has not started. The local Conductor workspace is not dependency-complete for local smoke runs; the intended execution hosts, presumably AWS workers, still need to pass runtime readiness.
+## Recommendation table
 
-Primary blocker summary:
+| Component class | Recommendation | Basis |
+|---|---|---|
+| Memory (MLE child/global) | **keep** — prefer `global_retrieval` config; do not strip memory | Finding 4 |
+| Memory (AIS journal) | **needs more evidence** — neutral within noise (n=4) | Finding 4 |
+| Search (MLE MCGS vs simpler) | **keep** MCGS incl. fusion/evolution; reject linear/greedy/vanilla-MCTS | Finding 3 |
+| Search (AIS BFTS vs linear) | **keep** BFTS default; `linear_stage` neutral (n=6) | stats file |
+| Workflow decomposition (AIS) | **modify** — adopt `draft_debug_improve_only` for benchmark-style tasks; stages 3–4 add cost, not score | Finding 2 |
+| Workflow decomposition (MLE) | **keep** stepwise+diff default; `no_stepwise` neutral on score, acceptable validity — optional simplification at reduced budgets | stats file |
+| Model routing | **modify** — default to gpt-4.1 everywhere; offer `strong_code_cheap_feedback` as the only premium option; reject `all_strong` | Finding 5 |
+| Diversity / novelty | **keep** diversity prompts (regime-dependent benefit); novelty search **needs more evidence** | Finding 6 |
+| Operators (fusion/evolution/aggregation) | **keep** — removal trends negative | Finding 3 |
+| Evaluator hardening / grading | **keep and extend** — grader-in-the-loop is mandatory; agent validity is an unreliable proxy | Finding 7 |
 
-- MLEvolve runtime dependencies are not installed in the local workspace.
-- AI Scientist v2 runtime dependencies are not installed in the local workspace.
-- `mlebench` CLI/module is unavailable locally.
-- Kaggle CLI is unavailable locally.
-- Kaggle credentials exist in 1Password and need to be injected on the execution host.
-- `GEMINI_API_KEY` is unavailable locally for the default MLEvolve model configuration.
+## Caveats
 
-See:
+- Screening confidence: paired cells per variant are small (n=2–6 per regime); CIs marked significant can still be fragile. Confirmation at ≥5 seeds remains open per the charter for any promotion beyond "screening-supported."
+- Regime-limited: CPU-only, 30–50-min budgets, 3 MLE-bench Lite tasks (NOMAD/Spooky/Aerial). GPU or 12-hour parity claims are out of scope.
+- The 10-node MLE arm is right-censored by the cost-gate stop (73 rows unrun) and timeouts; the reduced-profile recovery deliberately re-covered those cells at a different budget rather than rerunning the expensive regime.
+- Both systems ran with study-wide prompt hardening (device/offline/dtype contracts); results describe the hardened systems.
 
-- `.context/ablation/runtime_readiness.md`
-- `.context/ablation/screening_preflight.md`
-- `.context/ablation/kaggle_credentials_1password.md`
-- `.context/ablation/aws_execution_handoff.md`
-- `.context/ablation/mlevolve_smoke.md`
-- `.context/ablation/ais_v2_adapter_smoke.md`
+## Cost
 
-## Completed Infrastructure
+Total study OpenAI spend ≈ **$100 list price** (July-7 UTC bucket $60.5 at the gate stop, of which the 10-node fleet was the bulk; recovery added $38.6 of its $250 allowance). AWS compute fully credit-offset throughout. Original $250 tranche cap respected; recovery budget 15% used.
 
-- Shared schema for run and node logs.
-- MLE-bench Lite task manifest.
-- Run-matrix launcher and budget policy.
-- MLEvolve ablation configs and runtime controls.
-- AI Scientist v2 MLE-bench adapter fixtures, schema export helpers, and ablation config matrix.
-- Submission audit helper.
-- Shared result aggregator.
-- Statistical analysis script.
-- Audit promotion gate.
-- Persistent progress log.
-- AWS worker setup guide, worker environment spec, manifest dispatcher, and AWS Batch job-spec renderer.
-- Locked T22 cheap-screening matrix and 360 planned screening manifests/job specs.
+## Key artifacts
 
-## Current Evidence
-
-Only fixture evidence is available. Fixture outputs validate the harness but do not support empirical component recommendations.
-
-Available fixture artifacts:
-
-- `.context/ablation/exports/sample/`
-- `.context/ablation/analysis/sample/`
-- `.context/ablation/audit/sample/`
-
-## Recommendation Table
-
-| Component Class | Current Recommendation | Evidence State | Notes |
-| --- | --- | --- | --- |
-| Memory | needs more evidence | Runtime controls and configs exist; no live runs | Compare none, child history, global retrieval, success/failure memory, journal memory. |
-| Search | needs more evidence | MLEvolve and AI Scientist v2 search variants schedulable; no live runs | Compare linear, greedy, tree, MCTS, MCGS/BFTS controls. |
-| Workflow decomposition | needs more evidence | Controls exist; no live runs | Compare single/multi-step ideation, debugging, improvement, ablation, writeup/review. |
-| Model routing | needs more evidence | MLEvolve model-profile configs exist; no live runs | Requires provider credentials and cost tracking. |
-| Diversity and novelty | needs more evidence | Diversity/novelty controls and metrics exist; no live runs | Analyze entropy, nearest-neighbor novelty, and score tradeoffs. |
-| Operators | needs more evidence | Operator configs and export taxonomy exist; no live runs | Compare Draft, Debug, Improve, Evolution, Fusion/Crossover, Aggregation, Ablation, Review. |
-| Evaluator hardening | needs more evidence | Audit gate exists; no live runs | High-score audit failures cannot be promoted. |
-
-## Next Required Steps
-
-1. Satisfy runtime readiness on the AWS execution host with `python3 scripts/check_ablation_runtime_readiness.py --environment-label aws-execution-host`.
-2. Complete T21.5 using `docs/ablation_aws_worker_setup.md` and `configs/ablations/aws_worker_environment.json`.
-3. Replace placeholder AWS queue/job-definition values in `.context/ablation/aws_jobs/screening_jobs.jsonl`.
-4. Rerun MLEvolve smoke on AWS.
-5. Rerun AI Scientist v2 adapter smoke on AWS.
-6. Run T22 cheap screening from `configs/ablations/screening_matrix.json`.
-7. Aggregate screening results and apply the audit gate.
-8. Select variants for main ablation.
-9. Run main and finalist confirmation phases.
-10. Replace this scaffold with empirical recommendations and cited artifacts.
-
-## Interpretation Rules
-
-- Failed, invalid, timed-out, and audit-failed runs remain in denominators.
-- Invalid submissions receive effective normalized score `0.0` in effective-score and pairwise summaries.
-- Raw final scores are comparable only within the same task and metric.
-- Cross-task claims must use normalized score, paired win rate, valid-submission rate, audit-pass rate, cost, and confidence intervals.
-- No variant can be promoted unless top candidates pass audit and repeated confirmation.
+- Cross-batch stats: `.context/ablation/aws_jobs/final_cross_batch_stats_2026-07-07.json`
+- Fleet rollup: `t2x_terminal_grade_rollup_2026-07-07.json`; paired: `t2x_paired_comparisons_2026-07-07.json`
+- Recovery: `recovery_v1_final_report_2026-07-07.md` + per-batch grade rollups
+- E2-facing readout: `t2x_interim_readout.md`; stop reports: `t2x_openai_gate_stop_report_2026-07-07.md`, `tranche1r_seed1_stop_report_2026-07-04.md`
+- Execution log: `.context/ablation/progress.md`
