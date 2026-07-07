@@ -1,0 +1,16 @@
+{
+  "variant_id": "diversity_high",
+  "system": "mlevolve",
+  "component_class": "diversity",
+  "summary": "Enable high-diversity guidance and dissimilar retrieval.",
+  "research_question": "Does stronger diversity pressure increase useful exploration or mainly increase cost?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "diversity_high",
+    "ablation.dissimilar_guidance": true,
+    "ablation.diversity_mode": "high",
+    "ablation.novelty_lambda": 0.0
+  }
+}

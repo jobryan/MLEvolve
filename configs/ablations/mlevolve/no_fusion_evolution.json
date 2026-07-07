@@ -1,0 +1,16 @@
+{
+  "variant_id": "no_fusion_evolution",
+  "system": "mlevolve",
+  "component_class": "operators",
+  "summary": "Disable evolution and cross-branch fusion while preserving standard drafting, debugging, and improvement.",
+  "research_question": "How much do evolution and cross-branch fusion contribute beyond draft/debug/improve?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["smoke", "screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "no_fusion_evolution",
+    "ablation.operator_set": "no_fusion_evolution",
+    "agent.use_evolution": false,
+    "agent.use_fusion": false
+  }
+}

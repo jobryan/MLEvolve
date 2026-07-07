@@ -1,0 +1,16 @@
+{
+  "variant_id": "hardened_evaluator",
+  "system": "ai_scientist_v2",
+  "component_class": "evaluator",
+  "summary": "Require strict evaluator audit before node promotion.",
+  "research_question": "How does strict audit gating affect validity and promoted results?",
+  "inherits": ".context/external/AI-Scientist-v2/bfts_config.yaml",
+  "enabled_phases": ["smoke", "screening", "main", "confirmation"],
+  "cli_flags": ["--skip_writeup", "--skip_review"],
+  "overrides": {
+    "adapter.shared_benchmark": true,
+    "adapter.evaluator_hardening": "strict",
+    "adapter.audit_blocks_selection": true,
+    "adapter.selection_policy": "default_bfts"
+  }
+}

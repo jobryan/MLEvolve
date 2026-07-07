@@ -1,0 +1,18 @@
+{
+  "variant_id": "draft_debug_improve_only",
+  "system": "ai_scientist_v2",
+  "component_class": "workflow",
+  "summary": "Restrict AI Scientist v2 to initial implementation, debug, and baseline improvement behavior.",
+  "research_question": "How does an AIDE-like workflow compare to the full AI Scientist v2 stage plan?",
+  "inherits": ".context/external/AI-Scientist-v2/bfts_config.yaml",
+  "enabled_phases": ["smoke", "screening", "main"],
+  "cli_flags": ["--skip_writeup", "--skip_review"],
+  "overrides": {
+    "adapter.shared_benchmark": true,
+    "adapter.stage3_enabled": false,
+    "adapter.stage4_enabled": false,
+    "agent.stages.stage3_max_iters": 0,
+    "agent.stages.stage4_max_iters": 0,
+    "adapter.selection_policy": "default_bfts"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "variant_id": "child_history_only",
+  "system": "mlevolve",
+  "component_class": "memory",
+  "summary": "Use local parent/child experiment history but disable global retrieval.",
+  "research_question": "Is local child-history memory sufficient without global retrieval?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "child_history_only",
+    "ablation.child_memory": true,
+    "ablation.global_memory_filter": "none",
+    "agent.use_global_memory": false
+  }
+}

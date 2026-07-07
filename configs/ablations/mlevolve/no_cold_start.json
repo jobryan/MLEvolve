@@ -1,0 +1,14 @@
+{
+  "variant_id": "no_cold_start",
+  "system": "mlevolve",
+  "component_class": "workflow",
+  "summary": "Disable cold-start task/model guidance while preserving experiment memory.",
+  "research_question": "Does cold-start guidance improve outcomes relative to learned experiment memory alone?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "no_cold_start",
+    "coldstart.use_coldstart": false
+  }
+}

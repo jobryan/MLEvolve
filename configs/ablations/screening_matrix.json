@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "matrix_id": "cheap-screening-v1",
+  "phase": "screening",
+  "summary": "Reduced-cost screening matrix for AWS workers before main ablation.",
+  "selection_policy": {
+    "task_count": 6,
+    "seed_count": 3,
+    "variant_count": 20,
+    "notes": [
+      "Tasks cover text, tabular, image classification, image-to-image, and audio while avoiding the largest GPU-only Lite tasks during screening.",
+      "Variants cover baseline, memory, search, workflow/operator, diversity/novelty, model routing, and evaluator hardening without expanding every fine-grained ablation before smoke stability is known."
+    ]
+  },
+  "task_ids": [
+    "aerial-cactus-identification",
+    "spooky-author-identification",
+    "nomad2018-predict-transparent-conductors",
+    "denoising-dirty-documents",
+    "mlsp-2013-birds",
+    "tabular-playground-series-may-2022"
+  ],
+  "seeds": [
+    1,
+    2,
+    3
+  ],
+  "variant_specs": [
+    {"system": "mlevolve", "variant_id": "default_mcgs"},
+    {"system": "mlevolve", "variant_id": "no_memory"},
+    {"system": "mlevolve", "variant_id": "child_history_only"},
+    {"system": "mlevolve", "variant_id": "global_retrieval"},
+    {"system": "mlevolve", "variant_id": "linear_chain"},
+    {"system": "mlevolve", "variant_id": "greedy_tree"},
+    {"system": "mlevolve", "variant_id": "vanilla_mcts"},
+    {"system": "mlevolve", "variant_id": "no_fusion_evolution"},
+    {"system": "mlevolve", "variant_id": "aide_operator_set"},
+    {"system": "mlevolve", "variant_id": "single_shot"},
+    {"system": "mlevolve", "variant_id": "diversity_ablated"},
+    {"system": "mlevolve", "variant_id": "novelty_lambda_010"},
+    {"system": "mlevolve", "variant_id": "all_strong"},
+    {"system": "ai_scientist_v2", "variant_id": "stage_as_operator_default"},
+    {"system": "ai_scientist_v2", "variant_id": "no_journal_memory"},
+    {"system": "ai_scientist_v2", "variant_id": "draft_debug_improve_only"},
+    {"system": "ai_scientist_v2", "variant_id": "creative_research_disabled"},
+    {"system": "ai_scientist_v2", "variant_id": "ablation_disabled"},
+    {"system": "ai_scientist_v2", "variant_id": "debug_off_greedy"},
+    {"system": "ai_scientist_v2", "variant_id": "hardened_evaluator"}
+  ],
+  "expected_run_count": 360
+}

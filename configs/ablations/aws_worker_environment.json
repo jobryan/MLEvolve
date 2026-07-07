@@ -1,0 +1,150 @@
+{
+  "schema_version": "1.0",
+  "environment_id": "aws-ablation-worker-v1",
+  "execution_substrate": {
+    "default": "aws_batch",
+    "alternatives": [
+      "ecs",
+      "ec2",
+      "sagemaker"
+    ],
+    "notes": "AWS Batch is preferred because run manifests map naturally to array or single jobs and failed jobs remain inspectable."
+  },
+  "images": {
+    "combined": {
+      "recommended": true,
+      "purpose": "Run MLEvolve, AI Scientist v2 adapter, MLE-bench grading, aggregation, and audit tooling in one dependency-complete image.",
+      "base_image": "nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04",
+      "python": "3.11",
+      "install_steps": [
+        "Install system packages: git, curl, build-essential, python3.11, python3.11-venv, python3-pip, docker CLI if MLE-bench task execution requires it.",
+        "Install MLEvolve requirements from requirements_base.txt, requirements_ml.txt, and requirements_domain.txt.",
+        "Install AI Scientist v2 requirements from .context/external/AI-Scientist-v2-ablation/requirements.txt.",
+        "Install MLE-bench from the pinned external repo or package source used for the study.",
+        "Install Kaggle CLI.",
+        "Copy or mount this repo, .context/external/AI-Scientist-v2-ablation, configs/ablations, scripts, and docs."
+      ]
+    },
+    "split": {
+      "recommended": false,
+      "purpose": "Use separate images if MLEvolve and AI Scientist v2 dependency constraints conflict.",
+      "systems": {
+        "mlevolve": "aws-ablation-worker-mlevolve-v1",
+        "ai_scientist_v2": "aws-ablation-worker-ais-v2-v1"
+      }
+    }
+  },
+  "required_commands": [
+    "python3",
+    "mlebench",
+    "kaggle",
+    "docker"
+  ],
+  "required_python_modules": [
+    "torch",
+    "omegaconf",
+    "rich",
+    "humanize",
+    "dataclasses_json",
+    "numpy",
+    "pandas",
+    "coolname",
+    "openai",
+    "google.genai",
+    "anthropic",
+    "transformers",
+    "datasets",
+    "tiktoken",
+    "wandb",
+    "funcy",
+    "black",
+    "genson",
+    "shutup",
+    "igraph",
+    "jsonschema",
+    "boto3",
+    "botocore",
+    "mlebench"
+  ],
+  "required_environment_variables": [
+    "KAGGLE_USERNAME",
+    "KAGGLE_KEY",
+    "OPENAI_API_KEY",
+    "MLEBENCH_DATASET_DIR",
+    "ABLATION_ARTIFACT_ROOT"
+  ],
+  "optional_environment_variables": [
+    "MLEVOLVE_CODE_MODEL",
+    "MLEVOLVE_FEEDBACK_MODEL",
+    "MLEVOLVE_CODE_API_KEY",
+    "MLEVOLVE_FEEDBACK_API_KEY",
+    "MLEVOLVE_CODE_BASE_URL",
+    "MLEVOLVE_FEEDBACK_BASE_URL",
+    "MLEVOLVE_STRONG_CODE_MODEL",
+    "MLEVOLVE_STRONG_FEEDBACK_MODEL",
+    "MLEVOLVE_CHEAP_FEEDBACK_MODEL"
+  ],
+  "secret_sources": {
+    "KAGGLE_USERNAME": "op://Pickles/Kaggle API token (umphilitus)/username",
+    "KAGGLE_KEY": "op://Pickles/Kaggle API token (umphilitus)/credential",
+    "OPENAI_API_KEY": "op://Pickles/OpenAI - PraxLabs - Autoresearch/credential",
+    "MLEVOLVE_CODE_MODEL": "optional override; defaults to an OpenAI-compatible model in the manifest dispatcher",
+    "MLEVOLVE_FEEDBACK_MODEL": "optional override; defaults to an OpenAI-compatible model in the manifest dispatcher",
+    "MLEVOLVE_CODE_API_KEY": "optional override; use when MLEvolve code model is OpenAI-compatible or uses a non-default provider",
+    "MLEVOLVE_FEEDBACK_API_KEY": "optional override; use when MLEvolve feedback model is OpenAI-compatible or uses a non-default provider"
+  },
+  "artifact_storage": {
+    "recommended_root_env": "ABLATION_ARTIFACT_ROOT",
+    "recommended_uri_shape": "s3://<bucket>/mlevolve-ai-scientist-v2-ablation/<phase>/<run_id>/",
+    "required_subdirectories": [
+      "manifests",
+      "logs",
+      "nodes",
+      "generated_code",
+      "submissions",
+      "grader",
+      "audit",
+      "exports"
+    ]
+  },
+  "dataset_storage": {
+    "dataset_root_env": "MLEBENCH_DATASET_DIR",
+    "smoke_tasks": [
+      "aerial-cactus-identification",
+      "nomad2018-predict-transparent-conductors",
+      "spooky-author-identification"
+    ],
+    "prepare_command_template": "mlebench prepare -c {task_id}"
+  },
+  "readiness_command": "python3 scripts/check_ablation_runtime_readiness.py --environment-label aws-execution-host",
+  "manifest_dispatch_command_template": "python3 scripts/run_ablation_manifest.py --manifest {manifest_path}",
+  "aws_batch_defaults": {
+    "job_queue": "TO_BE_CONFIGURED",
+    "job_definition": "TO_BE_CONFIGURED",
+    "region": "TO_BE_CONFIGURED",
+    "vcpus_by_resource_class": {
+      "small_cpu": 8,
+      "small_image": 8,
+      "gpu_image_medium": 16,
+      "gpu_image_large": 32,
+      "tabular_large": 16,
+      "audio_medium": 16
+    },
+    "memory_mb_by_resource_class": {
+      "small_cpu": 32768,
+      "small_image": 32768,
+      "gpu_image_medium": 65536,
+      "gpu_image_large": 131072,
+      "tabular_large": 65536,
+      "audio_medium": 65536
+    },
+    "gpus_by_resource_class": {
+      "small_cpu": 0,
+      "small_image": 0,
+      "gpu_image_medium": 1,
+      "gpu_image_large": 1,
+      "tabular_large": 0,
+      "audio_medium": 0
+    }
+  }
+}

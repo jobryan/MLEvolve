@@ -1,0 +1,16 @@
+{
+  "variant_id": "success_memory_only",
+  "system": "mlevolve",
+  "component_class": "memory",
+  "summary": "Use only successful global-memory records while suppressing local child-history prompt injection.",
+  "research_question": "Are successful prior experiments sufficient guidance, or do failure records prevent repeated mistakes?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "success_memory_only",
+    "ablation.child_memory": false,
+    "ablation.global_memory_filter": "success_only",
+    "agent.use_global_memory": true
+  }
+}

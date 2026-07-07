@@ -3,11 +3,178 @@
 import logging
 import random
 import time
-from typing import List
+from typing import Any, List
 
 from engine.search_node import SearchNode
 from engine.conditions import should_trigger_branch_fusion
+from agents.memory.ablation_controls import reset_memory_events
+from agents.workflow_controls import operator_allowed
+from utils.diversity_novelty import nearest_neighbor_distance, node_summary_text, previous_node_texts
 logger = logging.getLogger("MLEvolve")
+
+
+def _search_policy(agent) -> str:
+    ablation_cfg = getattr(getattr(agent, "cfg", None), "ablation", None)
+    return str(getattr(ablation_cfg, "search_policy", "mcgs") or "mcgs")
+
+
+def _set_selection_rationale(agent, node: SearchNode, policy: str, reason: str, **extra: Any) -> SearchNode:
+    reset_memory_events(agent)
+    rationale = {
+        "policy": policy,
+        "selected_node_id": getattr(node, "id", None),
+        "reason": reason,
+        **extra,
+    }
+    setattr(agent, "last_selection_rationale", rationale)
+    setattr(node, "_selection_rationale", rationale)
+    logger.info(f"[select] -> node {node.id} (policy={policy}, reason={reason})")
+    return node
+
+
+def _metric_value(node: SearchNode) -> float | None:
+    metric = getattr(node, "metric", None)
+    return getattr(metric, "value", None) if metric is not None else None
+
+
+def _score_for_sort(agent, node: SearchNode) -> float:
+    value = _metric_value(node)
+    if value is None:
+        return float("-inf")
+    score = float(value) if getattr(agent, "metric_maximize", True) else -float(value)
+    novelty_lambda = _novelty_lambda(agent)
+    if novelty_lambda > 0:
+        score += novelty_lambda * _node_novelty(agent, node)
+    return score
+
+
+def _novelty_lambda(agent) -> float:
+    ablation_cfg = getattr(getattr(agent, "cfg", None), "ablation", None)
+    try:
+        return float(getattr(ablation_cfg, "novelty_lambda", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _node_novelty(agent, node: SearchNode) -> float:
+    cached = getattr(node, "novelty_score", None)
+    if cached is not None:
+        return float(cached)
+    previous_text = previous_node_texts(_iter_known_nodes(agent), current_node=node)
+    distance = nearest_neighbor_distance(node_summary_text(node), previous_text)
+    novelty = 0.0 if distance is None else float(distance)
+    setattr(node, "novelty_score", novelty)
+    return novelty
+
+
+def _stable_node_key(node: SearchNode) -> tuple:
+    return (getattr(node, "step", 0) or 0, getattr(node, "ctime", 0.0) or 0.0, getattr(node, "id", ""))
+
+
+def _best_by_metric(agent, nodes: list[SearchNode]) -> SearchNode | None:
+    if not nodes:
+        return None
+    return max(nodes, key=lambda node: (_score_for_sort(agent, node), _stable_node_key(node)))
+
+
+def _iter_known_nodes(agent) -> list[SearchNode]:
+    seen = set()
+    nodes: list[SearchNode] = []
+
+    def add(node: SearchNode | None) -> None:
+        if node is None or id(node) in seen:
+            return
+        seen.add(id(node))
+        nodes.append(node)
+
+    add(getattr(agent, "virtual_root", None))
+    for branch_nodes in getattr(agent, "branch_all_nodes", {}).values():
+        for node in branch_nodes:
+            add(node)
+    for node in getattr(getattr(agent, "journal", None), "nodes", []):
+        add(node)
+    return nodes
+
+
+def select_linear_chain(agent) -> SearchNode:
+    """Select along one best path, expanding the leaf before creating alternatives."""
+    node = agent.virtual_root
+    path = [getattr(node, "id", None)]
+
+    while node is not None and not getattr(node, "is_terminal", False):
+        if not node.reached_child_limit(scfg=agent.scfg):
+            return _set_selection_rationale(
+                agent,
+                node,
+                "linear_chain",
+                "expand_first_available_node_on_best_path",
+                path=path,
+            )
+        child = _best_by_metric(agent, list(getattr(node, "children", [])))
+        if child is None:
+            return _set_selection_rationale(
+                agent,
+                node,
+                "linear_chain",
+                "no_child_available_after_limit",
+                path=path,
+            )
+        node = child
+        path.append(getattr(node, "id", None))
+
+    return _set_selection_rationale(agent, agent.virtual_root, "linear_chain", "fallback_to_root", path=path)
+
+
+def select_greedy_tree(agent) -> SearchNode:
+    """Select the best currently expandable valid node without UCT exploration."""
+    candidates = []
+    for node in _iter_known_nodes(agent):
+        if getattr(node, "is_terminal", False):
+            continue
+        if node.reached_child_limit(scfg=agent.scfg):
+            continue
+        if node is agent.virtual_root:
+            candidates.append(node)
+            continue
+        if getattr(node, "is_buggy", None) is False and _metric_value(node) is not None:
+            candidates.append(node)
+
+    selected = _best_by_metric(agent, candidates)
+    if selected is None:
+        selected = agent.virtual_root
+        reason = "no_expandable_valid_node"
+    elif selected is agent.virtual_root:
+        reason = "root_has_remaining_draft_capacity"
+    else:
+        reason = "best_expandable_valid_node"
+    return _set_selection_rationale(
+        agent,
+        selected,
+        "greedy_tree",
+        reason,
+        candidate_count=len(candidates),
+        metric_value=_metric_value(selected),
+    )
+
+
+def select_vanilla_mcts(agent) -> SearchNode:
+    """Select with fixed-constant UCT from the root; configs disable MCGS extras."""
+    previous_c = getattr(agent, "_fixed_exploration_constant", None)
+    agent._fixed_exploration_constant = 1.414
+    try:
+        selected = select(agent, agent.virtual_root)
+    finally:
+        if previous_c is None:
+            delattr(agent, "_fixed_exploration_constant")
+        else:
+            agent._fixed_exploration_constant = previous_c
+    return _set_selection_rationale(agent, selected, "vanilla_mcts", "fixed_uct_from_root")
+
+
+def select_progressive_mcts(agent) -> SearchNode:
+    """Select with decayed UCT from the root without MCGS top-K switching."""
+    selected = select(agent, agent.virtual_root)
+    return _set_selection_rationale(agent, selected, "progressive_mcts", "decayed_uct_from_root")
 
 
 def _piecewise_decay(t, initial_C=1.414, T1=100, T2=200, alpha=0.01, lower_bound=0.7):
@@ -22,6 +189,9 @@ def _piecewise_decay(t, initial_C=1.414, T1=100, T2=200, alpha=0.01, lower_bound
 
 def _compute_exploration_constant(agent):
     """Compute exploration constant C from search progress (piecewise decay)."""
+    fixed_c = getattr(agent, "_fixed_exploration_constant", None)
+    if fixed_c is not None:
+        return fixed_c
     dcfg = agent.cfg.agent.decay
     n1 = agent.scfg.num_drafts * (agent.scfg.num_improves ** 2)
     n2 = round(agent.acfg.steps * dcfg.phase_ratios[0])
@@ -63,7 +233,13 @@ def select(agent, node: SearchNode):
                 logger.info(f"[select] → node {node.id} (method=expand)")
                 return node
         else:
-            if agent.is_root(node) and getattr(agent.acfg, "use_aggregation", True) and should_trigger_branch_fusion(agent) and random.random() < agent.acfg.branch_fusion_trigger_prob:
+            if (
+                agent.is_root(node)
+                and getattr(agent.acfg, "use_aggregation", True)
+                and operator_allowed(agent, "Aggregation")
+                and should_trigger_branch_fusion(agent)
+                and random.random() < agent.acfg.branch_fusion_trigger_prob
+            ):
                 logger.info(f"Root node {node.id} is fully expanded for regular drafts, aggregation conditions met (including probability), returning root")
                 return node
             node = _best_child(node)
@@ -100,10 +276,13 @@ def get_top_k_nodes_global(agent, k: int, max_from_same_branch: int) -> List[dic
         return []
 
     maximize = agent.metric_maximize
-    all_nodes.sort(
-        key=lambda n: n.metric.value,
-        reverse=maximize
-    )
+    if _novelty_lambda(agent) > 0:
+        all_nodes.sort(key=lambda n: _score_for_sort(agent, n), reverse=True)
+    else:
+        all_nodes.sort(
+            key=lambda n: n.metric.value,
+            reverse=maximize
+        )
 
     logger.info(f"Total valid nodes: {len(all_nodes)}, requesting Top-{k}")
 
@@ -160,9 +339,24 @@ def select_from_top_k_weighted(agent, top_k_nodes: List[dict]) -> SearchNode:
 
 def select_with_soft_switch(agent) -> SearchNode:
     """Soft switch: exploration (UCT) vs exploitation (Top-K) by time progress."""
+    policy = _search_policy(agent)
+    if policy == "linear_chain":
+        return select_linear_chain(agent)
+    if policy == "greedy_tree":
+        return select_greedy_tree(agent)
+    if policy == "vanilla_mcts":
+        return select_vanilla_mcts(agent)
+    if policy == "progressive_mcts":
+        return select_progressive_mcts(agent)
+    if policy == "single_shot":
+        return _set_selection_rationale(agent, agent.virtual_root, "single_shot", "draft_only_root_selection")
+    if policy != "mcgs":
+        logger.warning(f"Unknown search_policy={policy!r}; falling back to mcgs")
+
     if agent.search_start_time is None:
         logger.info("📊 Search not started yet, using standard UCT")
-        return select(agent, agent.virtual_root)
+        selected = select(agent, agent.virtual_root)
+        return _set_selection_rationale(agent, selected, "mcgs", "search_not_started_uct")
 
     time_elapsed = time.time() - agent.search_start_time
     total_time = agent.acfg.time_limit
@@ -180,7 +374,15 @@ def select_with_soft_switch(agent) -> SearchNode:
     if random.random() < exploration_weight:
         logger.info(f"📊 Exploration mode (weight={exploration_weight:.2%}, "
                    f"time={time_progress:.1%})")
-        return select(agent, agent.virtual_root)
+        selected = select(agent, agent.virtual_root)
+        return _set_selection_rationale(
+            agent,
+            selected,
+            "mcgs",
+            "exploration_uct",
+            exploration_weight=exploration_weight,
+            time_progress=time_progress,
+        )
 
     else:
         # Top-K exploitation
@@ -206,7 +408,15 @@ def select_with_soft_switch(agent) -> SearchNode:
 
         if not top_k_nodes:
             logger.warning("No valid Top-K nodes found, fallback to standard UCT")
-            return select(agent, agent.virtual_root)
+            selected = select(agent, agent.virtual_root)
+            return _set_selection_rationale(
+                agent,
+                selected,
+                "mcgs",
+                "topk_empty_fallback_uct",
+                exploration_weight=exploration_weight,
+                time_progress=time_progress,
+            )
 
         available_nodes = [
             item for item in top_k_nodes
@@ -217,11 +427,28 @@ def select_with_soft_switch(agent) -> SearchNode:
             selected_node = select_from_top_k_weighted(agent, available_nodes)
             logger.info(f"✅ Selected unexpanded Top-K node {selected_node.id} (from {len(available_nodes)}/{len(top_k_nodes)} available)")
             selected_node._topk_triggered = True
-            return selected_node
+            return _set_selection_rationale(
+                agent,
+                selected_node,
+                "mcgs",
+                "topk_weighted_unexpanded",
+                exploration_weight=exploration_weight,
+                time_progress=time_progress,
+                topk_size=len(top_k_nodes),
+                available_topk_size=len(available_nodes),
+            )
         else:
             logger.info(f"⚠️ All Top-{len(top_k_nodes)} nodes fully expanded, will apply UCT from selected node")
             selected_node = select_from_top_k_weighted(agent, top_k_nodes)
             logger.info(f"Selected fully expanded node {selected_node.id}, applying UCT from it")
             uct_node = select(agent, selected_node)
             uct_node._topk_triggered = True
-            return uct_node
+            return _set_selection_rationale(
+                agent,
+                uct_node,
+                "mcgs",
+                "topk_weighted_then_uct",
+                exploration_weight=exploration_weight,
+                time_progress=time_progress,
+                topk_size=len(top_k_nodes),
+            )

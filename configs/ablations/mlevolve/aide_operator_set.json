@@ -1,0 +1,17 @@
+{
+  "variant_id": "aide_operator_set",
+  "system": "mlevolve",
+  "component_class": "operators",
+  "summary": "Restrict operators to Draft, Debug, Improve, and summary memory.",
+  "research_question": "How much of MLEvolve's gain comes from the AIDE-style draft/debug/improve loop versus extra graph operators?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "aide_operator_set",
+    "ablation.operator_set": "draft_debug_improve",
+    "agent.use_evolution": false,
+    "agent.use_fusion": false,
+    "agent.use_aggregation": false
+  }
+}

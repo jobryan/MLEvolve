@@ -1,0 +1,14 @@
+{
+  "variant_id": "no_stepwise_generation",
+  "system": "mlevolve",
+  "component_class": "workflow",
+  "summary": "Disable stepwise plan/code generation while preserving diff mode.",
+  "research_question": "Does stepwise generation improve initial solution quality or mainly add latency?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "no_stepwise_generation",
+    "agent.use_stepwise_generation": false
+  }
+}

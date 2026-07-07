@@ -10,6 +10,7 @@ from utils.response import wrap_code
 from engine.validation import call_validate, _validate_submission_with_retry, validate_submission_content_quality
 from agents import data_leakage_agent
 from agents.triggers import should_check_data_leakage
+from agents.memory.ablation_controls import global_memory_recording_enabled
 
 logger = logging.getLogger("MLEvolve")
 
@@ -148,7 +149,7 @@ def get_review_func_spec(use_memory: bool) -> FunctionSpec:
 
 
 def _build_introduction(agent) -> str:
-    use_memory = getattr(agent.acfg, "use_global_memory", False)
+    use_memory = global_memory_recording_enabled(agent)
     intro = (
         "You are a Kaggle grandmaster attending a competition. "
         "You have written code to solve this task and now need to evaluate the output of the code execution. "
@@ -183,7 +184,7 @@ def _check_submission_file(agent, node: SearchNode) -> bool:
 
 
 def _save_code_summary(agent, node: SearchNode, response: dict):
-    use_memory = getattr(agent.acfg, "use_global_memory", False)
+    use_memory = global_memory_recording_enabled(agent)
     if not use_memory:
         node.code_summary = None
         return
@@ -195,11 +196,67 @@ def _save_code_summary(agent, node: SearchNode, response: dict):
         node.code_summary = None
 
 
+def _exception_payload(node: SearchNode) -> str:
+    parts: list[str] = []
+    if node.exc_info:
+        parts.extend(str(value) for value in node.exc_info.values() if value is not None)
+    if node.exc_stack:
+        parts.append(str(node.exc_stack))
+    if getattr(node, "_term_out", None):
+        parts.append("".join(node._term_out)[-4000:])
+    return "\n".join(parts)
+
+
+def _is_nonfatal_exception_status(node: SearchNode, response: dict, has_csv_submission: bool) -> bool:
+    if node.exc_type is None:
+        return False
+    if response.get("is_bug") or response.get("metric") is None or not has_csv_submission:
+        return False
+
+    payload = _exception_payload(node).lower().strip()
+    warning_markers = (
+        "warning",
+        "userwarning",
+        "runtimewarning",
+        "futurewarning",
+        "deprecationwarning",
+    )
+    fatal_markers = (
+        "traceback (most recent call last)",
+        "valueerror",
+        "typeerror",
+        "attributeerror",
+        "keyerror",
+        "indexerror",
+        "filenotfounderror",
+        "importerror",
+        "assertionerror",
+        "nameerror",
+        "timeouterror",
+        "cuda",
+    )
+
+    if node.exc_type in {"Warning", "UserWarning", "RuntimeWarning", "FutureWarning", "DeprecationWarning"}:
+        return True
+    if node.exc_type == "RuntimeError" and not payload:
+        return True
+    if node.exc_type == "RuntimeError" and any(marker in payload for marker in warning_markers):
+        return not any(marker in payload for marker in fatal_markers)
+    if node.exc_type == "RuntimeError" and not node.exc_stack and "execution time:" in payload:
+        non_status_lines = [
+            line
+            for line in payload.splitlines()
+            if line.strip() and "execution time:" not in line
+        ]
+        return len(non_status_lines) <= 1
+    return False
+
+
 def _determine_buggy(node: SearchNode, response: dict, has_csv_submission: bool):
     failure_reasons = []
     if response["is_bug"]:
         failure_reasons.append("execution error detected")
-    if node.exc_type is not None:
+    if node.exc_type is not None and not _is_nonfatal_exception_status(node, response, has_csv_submission):
         failure_reasons.append(f"exception raised: {node.exc_type}")
     if response["metric"] is None:
         failure_reasons.append("no metric value reported")
@@ -366,7 +423,13 @@ def _check_data_leakage(agent, node: SearchNode, response: dict):
 
 
 def _save_to_global_memory(agent, node: SearchNode):
-    if agent.global_memory and not node.is_buggy and node.metric and node.metric.value is not None:
+    if (
+        global_memory_recording_enabled(agent)
+        and agent.global_memory
+        and not node.is_buggy
+        and node.metric
+        and node.metric.value is not None
+    ):
         try:
             parent_node = node.parent
             agent.global_memory.save_node(node, parent_node)
@@ -394,7 +457,7 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
                 query(
                     system_message=prompt,
                     user_message=None,
-                    func_spec=get_review_func_spec(getattr(agent.acfg, "use_global_memory", False)),
+                    func_spec=get_review_func_spec(global_memory_recording_enabled(agent)),
                     model=agent.acfg.feedback.model,
                     temperature=agent.acfg.feedback.temp,
                     cfg=agent.cfg

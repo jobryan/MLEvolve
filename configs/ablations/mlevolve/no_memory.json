@@ -1,0 +1,19 @@
+{
+  "variant_id": "no_memory",
+  "system": "mlevolve",
+  "component_class": "memory",
+  "summary": "Disable logged experiment memory while keeping non-experiment cold-start guidance available.",
+  "research_question": "What is the value of logged experiment memory when local child history and global retrieval are removed?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["smoke", "screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "no_memory",
+    "ablation.child_memory": false,
+    "ablation.global_memory_filter": "none",
+    "ablation.dissimilar_guidance": false,
+    "ablation.diversity_mode": "default",
+    "ablation.novelty_lambda": 0.0,
+    "agent.use_global_memory": false
+  }
+}

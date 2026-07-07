@@ -1,0 +1,19 @@
+{
+  "variant_id": "diversity_ablated",
+  "system": "mlevolve",
+  "component_class": "diversity",
+  "summary": "Disable diversity-specific guidance and novelty scoring.",
+  "research_question": "What happens when diversity-specific mechanisms are removed?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": [
+    "screening",
+    "main"
+  ],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "diversity_ablated",
+    "ablation.dissimilar_guidance": false,
+    "ablation.diversity_mode": "none",
+    "ablation.novelty_lambda": 0.0
+  }
+}

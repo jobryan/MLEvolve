@@ -1,0 +1,22 @@
+{
+  "variant_id": "single_shot",
+  "system": "mlevolve",
+  "component_class": "workflow",
+  "summary": "Generate one draft solution with no iterative improvement budget.",
+  "research_question": "What is the baseline value of one-shot generation before iterative search?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "single_shot",
+    "ablation.search_policy": "single_shot",
+    "ablation.operator_set": "draft_only",
+    "agent.steps": 1,
+    "agent.initial_drafts": 1,
+    "agent.search.num_drafts": 1,
+    "agent.search.parallel_search_num": 1,
+    "agent.use_evolution": false,
+    "agent.use_fusion": false,
+    "agent.use_aggregation": false
+  }
+}

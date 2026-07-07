@@ -1,0 +1,54 @@
+{
+  "budget_policy_version": "ablation-budgets-v1",
+  "profiles": {
+    "smoke": {
+      "wall_time_seconds": 14400,
+      "max_nodes": 10,
+      "max_cost_usd": 50.0,
+      "max_input_tokens": 5000000,
+      "max_output_tokens": 1000000,
+      "max_debug_attempts": 10,
+      "early_stop": {
+        "min_nodes_before_check": 3,
+        "catastrophic_valid_node_rate": 0.0
+      }
+    },
+    "screening": {
+      "wall_time_seconds": 14400,
+      "max_nodes": 30,
+      "max_cost_usd": 150.0,
+      "max_input_tokens": 15000000,
+      "max_output_tokens": 3000000,
+      "max_debug_attempts": 25,
+      "early_stop": {
+        "min_nodes_before_check": 8,
+        "catastrophic_valid_node_rate": 0.05
+      }
+    },
+    "main": {
+      "wall_time_seconds": 43200,
+      "max_nodes": 100,
+      "max_cost_usd": 500.0,
+      "max_input_tokens": 50000000,
+      "max_output_tokens": 10000000,
+      "max_debug_attempts": 75,
+      "early_stop": {
+        "min_nodes_before_check": 20,
+        "catastrophic_valid_node_rate": 0.05
+      }
+    },
+    "confirmation": {
+      "wall_time_seconds": 86400,
+      "max_nodes": 150,
+      "max_cost_usd": 750.0,
+      "max_input_tokens": 75000000,
+      "max_output_tokens": 15000000,
+      "max_debug_attempts": 100,
+      "early_stop": {
+        "min_nodes_before_check": 30,
+        "catastrophic_valid_node_rate": 0.05
+      }
+    }
+  },
+  "overage_status": "budget_exceeded"
+}

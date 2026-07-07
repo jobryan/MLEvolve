@@ -1,0 +1,18 @@
+{
+  "variant_id": "novelty_lambda_005",
+  "system": "mlevolve",
+  "component_class": "novelty",
+  "summary": "Add a small novelty bonus to node selection ordering (selection-only; reward-side novelty is not implemented).",
+  "research_question": "Does a small novelty bonus improve exploration without hurting score?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": [
+    "screening",
+    "main"
+  ],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "novelty_lambda_005",
+    "ablation.diversity_mode": "novelty",
+    "ablation.novelty_lambda": 0.05
+  }
+}

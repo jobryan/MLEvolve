@@ -9,6 +9,8 @@ from llm import compile_prompt_to_md
 from engine.search_node import SearchNode
 from agents.coder import plan_and_code_query, stepwise_plan_and_code_query
 from agents.triggers import register_node
+from agents.memory.ablation_controls import get_child_memory
+from agents.workflow_controls import diversity_prompts_enabled
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
     prompt_leakage_prevention,
@@ -63,7 +65,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
     prompt: Any = {
         "Introduction": introduction,
         "Task description": agent.task_desc,
-        "Memory": agent.virtual_root.fetch_child_memory(),
+        "Memory": get_child_memory(agent, agent.virtual_root, source="draft_child_history"),
         "Instructions": {},
     }
     prompt["Instructions"] |= prompt_resp_fmt()
@@ -97,9 +99,12 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
         ],
     }
 
-    prompt["Instructions"] |= {
-        "Solution sketch guideline": [
-            "- This first solution design should be relatively simple — avoid complex ensemble strategies or extensive hyperparameter searches at this stage.\n",
+    solution_sketch_guideline = [
+        "- This first solution design should be relatively simple — avoid complex ensemble strategies or extensive hyperparameter searches at this stage.\n",
+        "- For tabular CSV competitions, a short-budget first draft should favor a robust baseline with a validated numeric feature matrix (LightGBM, XGBoost, ExtraTrees/RandomForest, HistGradientBoosting, or logistic/linear models). Avoid custom TabNet-like/attention/embedding neural networks until after a valid submission-producing baseline exists.\n",
+    ]
+    if diversity_prompts_enabled(agent):
+        solution_sketch_guideline += [
             "- 🎯 **CRITICAL: NOVELTY & DIVERSITY REQUIREMENT**:\n",
             "  • **Mandatory**: Your solution MUST be NOVEL compared to ALL existing attempts in Memory.\n",
             "  • **Step 1**: Carefully analyze the core idea of EACH previous attempt in Memory.\n",
@@ -109,11 +114,15 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
             "  • **Forbidden**: Minor variations (changing hyperparameters, swapping similar models, tweaking preprocessing).\n",
             "  • **Think**: 'Does my approach explore a fundamentally different hypothesis?' If NO → redesign.\n",
             "- Don't propose the same modelling solution but keep the evaluation the same.\n",
-            "- Your plan should be concise but comprehensive: Must address WHAT/WHY/HOW (2-4 sentences each). Avoid verbosity - every sentence should add new insight. Natural length: around 8-12 sentences for a complete reasoning process.\n",
-            "- Propose an evaluation metric that is reasonable for this task.\n",
-            "- Don't suggest to do EDA.\n",
-            "- The data is already prepared in `./input` directory. No need to unzip files.\n",
-        ],
+        ]
+    solution_sketch_guideline += [
+        "- Your plan should be concise but comprehensive: Must address WHAT/WHY/HOW (2-4 sentences each). Avoid verbosity - every sentence should add new insight. Natural length: around 8-12 sentences for a complete reasoning process.\n",
+        "- Propose an evaluation metric that is reasonable for this task.\n",
+        "- Don't suggest to do EDA.\n",
+        "- The data is already prepared in `./input` directory. No need to unzip files.\n",
+    ]
+    prompt["Instructions"] |= {
+        "Solution sketch guideline": solution_sketch_guideline,
         "Coding & Execution Guidelines (CRITICAL)": [
             "- **NO PROGRESS BARS**: You MUST NOT use `tqdm`. Assume `tqdm` is not installed. Use standard Python loops only. Do not use `verbose=1`.",
             "- **MINIMAL LOGGING**: Print ONLY 1 line per epoch (e.g. loss/accuracy). Do NOT print batch-level logs.",

@@ -1,0 +1,14 @@
+{
+  "variant_id": "greedy_selection",
+  "system": "ai_scientist_v2",
+  "component_class": "search",
+  "summary": "Use greedy best-node selection.",
+  "research_question": "Does greedy best-node selection outperform default BFTS exploration?",
+  "inherits": ".context/external/AI-Scientist-v2/bfts_config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "cli_flags": ["--skip_writeup", "--skip_review"],
+  "overrides": {
+    "adapter.shared_benchmark": true,
+    "adapter.selection_policy": "greedy"
+  }
+}

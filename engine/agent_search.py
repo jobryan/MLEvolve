@@ -10,6 +10,9 @@ from engine.search_node import SearchNode, Journal
 import utils.data_preview as data_preview
 from config import Config
 from utils.metric import WorstMetricValue
+from utils.ablation_export import AblationExporter, maybe_get_exporter
+from agents.memory.ablation_controls import global_memory_filter
+from agents.workflow_controls import code_review_enabled, operator_allowed
 import threading
 import json
 
@@ -85,7 +88,7 @@ class AgentSearch:
 
         # Global memory
         self.global_memory = None
-        if self.acfg.use_global_memory:
+        if self.acfg.use_global_memory and global_memory_filter(self) != "none":
             try:
                 from agents.memory.global_memory import GlobalMemoryLayer
                 memory_dir = str(self.cfg.workspace_dir / "global_memory")
@@ -103,6 +106,8 @@ class AgentSearch:
                 self.global_memory = None
         else:
             logger.info("[AgentSearch] Global memory is disabled by config")
+
+        self.ablation_exporter = AblationExporter(self)
 
     def _serialize_prompt(self, prompt_complete) -> str | None:
         """Serialize prompt (str or dict) to string for saving in node."""
@@ -144,22 +149,34 @@ class AgentSearch:
             try:
                 if self.is_root(parent_node):
                     if parent_node.reached_child_limit(scfg=self.scfg):
-                        logger.info("🎯 Regular draft limit reached, triggering multi-branch aggregation (conditions already checked in select())")
-                        result_node = aggregation_agent.run(self, mode="node", parent_node=parent_node)
-                        if result_node:
-                            result_node.lock = True
-                            logger.info(f"[_run_single_step] Aggregation branch node {result_node.id} is locked.")
+                        if getattr(self.acfg, "use_aggregation", True) and operator_allowed(self, "Aggregation"):
+                            logger.info("🎯 Regular draft limit reached, triggering multi-branch aggregation (conditions already checked in select())")
+                            result_node = aggregation_agent.run(self, mode="node", parent_node=parent_node)
+                            if result_node:
+                                result_node.lock = True
+                                logger.info(f"[_run_single_step] Aggregation branch node {result_node.id} is locked.")
+                            else:
+                                logger.info("Aggregation failed or limit reached, skipping. Will continue normal search.")
+                                result_node = None
                         else:
-                            logger.info("Aggregation failed or limit reached, skipping. Will continue normal search.")
+                            logger.info("Aggregation disabled by workflow/operator ablation; skipping root aggregation.")
                             result_node = None
                     else:
                         result_node = draft_agent.run(self, init_solution_path=init_solution_path)
                         result_node.lock = True
                         logger.info(f"[_run_single_step] Draft node {result_node.id} is locked.")
                 elif parent_node.is_buggy or parent_node.is_valid is False:
-                    result_node = debug_agent.run(self, parent_node)
+                    if operator_allowed(self, "Debug"):
+                        result_node = debug_agent.run(self, parent_node)
+                    else:
+                        logger.info(f"Debug disabled by workflow/operator ablation for node {parent_node.id}")
+                        result_node = None
 
                 elif parent_node.is_buggy is False:
+                    if not operator_allowed(self, "Improve"):
+                        logger.info(f"Improve disabled by workflow/operator ablation for node {parent_node.id}")
+                        result_node = None
+                        return _root, result_node
                     can_use_fusion = False
                     if self.search_start_time:
                         elapsed_time = time.time() - self.search_start_time
@@ -171,8 +188,12 @@ class AgentSearch:
                         logger.info(f"🎯 Exploitation mode: using relaxed stagnation threshold ({stagnation_threshold} attempts)")
 
                     if is_branch_stagnant(self, parent_node.branch_id, threshold=stagnation_threshold):
-                        evo_ok = getattr(self.acfg, "use_evolution", True)
-                        fus_ok = getattr(self.acfg, "use_fusion", True) and can_use_fusion
+                        evo_ok = getattr(self.acfg, "use_evolution", True) and operator_allowed(self, "Evolution")
+                        fus_ok = (
+                            getattr(self.acfg, "use_fusion", True)
+                            and operator_allowed(self, "Fusion/Crossover")
+                            and can_use_fusion
+                        )
                         if evo_ok and fus_ok:
                             if random.random() < self.acfg.fusion_vs_evolution_prob:
                                 logger.info(f"🎯 Triggering fusion for stagnant node {parent_node.id} (after 6h)")
@@ -199,13 +220,15 @@ class AgentSearch:
                 if result_node:
                     if init_solution_path:
                         logger.info(f"Node {result_node.id} from init_solution, skipping code review")
-                    else:
+                    elif code_review_enabled(self):
                         reviewed_code = code_review_agent.run(self, result_node)
                         if reviewed_code.strip() != result_node.code.strip():
                             logger.info(f"Node {result_node.id} code has been reviewed and modified")
                             result_node.code = reviewed_code
                         else:
                             logger.info(f"Node {result_node.id} passed code review without changes")
+                    else:
+                        logger.info(f"Code review disabled by workflow ablation for node {result_node.id}")
 
                     if not execute_immediately:
                         logger.info(f"Node {result_node.id} code generated and reviewed, execution deferred")
@@ -219,6 +242,9 @@ class AgentSearch:
                     execution.validate_executed_node(self, result_node)
                     logger.info(f"The metric value of node {result_node.id} is {result_node.metric.value}.")
                     result_node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
+                    exporter = maybe_get_exporter(self)
+                    if exporter:
+                        exporter.export_node(result_node)
 
                     if parent_node.is_buggy and result_node.is_buggy is False:
                         parent_node.is_debug_success = True
@@ -307,6 +333,9 @@ class AgentSearch:
             logger.info(f"Node {node.id} execution completed: metric={node.metric.value}, is_buggy={node.is_buggy}")
 
             node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
+            exporter = maybe_get_exporter(self)
+            if exporter:
+                exporter.export_node(node)
 
             if parent_node and parent_node.is_buggy and node.is_buggy is False:
                 parent_node.is_debug_success = True

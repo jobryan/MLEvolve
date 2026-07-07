@@ -1,0 +1,20 @@
+{
+  "variant_id": "novelty_lambda_010",
+  "system": "mlevolve",
+  "component_class": "novelty",
+  "summary": "Add the planned default novelty bonus to node selection ordering (selection-only; reward-side novelty is not implemented).",
+  "research_question": "Does the planned default novelty bonus improve downstream score and validity?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": [
+    "smoke",
+    "screening",
+    "main",
+    "confirmation"
+  ],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "novelty_lambda_010",
+    "ablation.diversity_mode": "novelty",
+    "ablation.novelty_lambda": 0.1
+  }
+}

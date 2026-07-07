@@ -1,0 +1,16 @@
+{
+  "variant_id": "global_retrieval",
+  "system": "mlevolve",
+  "component_class": "memory",
+  "summary": "Use global retrieval while suppressing local child-history prompt injection.",
+  "research_question": "Does global retrieval help when local child-history memory is removed?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "global_retrieval",
+    "ablation.child_memory": false,
+    "ablation.global_memory_filter": "all",
+    "agent.use_global_memory": true
+  }
+}

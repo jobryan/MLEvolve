@@ -1,0 +1,18 @@
+{
+  "variant_id": "novelty_lambda_040",
+  "system": "mlevolve",
+  "component_class": "novelty",
+  "summary": "Add a high novelty bonus to node selection ordering (selection-only; reward-side novelty is not implemented).",
+  "research_question": "Does high novelty produce diverse but lower-performing attempts?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": [
+    "screening",
+    "main"
+  ],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "novelty_lambda_040",
+    "ablation.diversity_mode": "novelty",
+    "ablation.novelty_lambda": 0.4
+  }
+}

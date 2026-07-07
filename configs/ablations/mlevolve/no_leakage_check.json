@@ -1,0 +1,14 @@
+{
+  "variant_id": "no_leakage_check",
+  "system": "mlevolve",
+  "component_class": "workflow",
+  "summary": "Disable the data-leakage check while preserving evaluator hardening.",
+  "research_question": "How much does the data-leakage check affect validity, audit failures, and apparent score?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "no_leakage_check",
+    "agent.check_data_leakage": false
+  }
+}

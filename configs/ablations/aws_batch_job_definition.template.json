@@ -1,0 +1,81 @@
+{
+  "jobDefinitionName": "mlevolve-ai-scientist-v2-ablation-worker",
+  "type": "container",
+  "platformCapabilities": [
+    "EC2"
+  ],
+  "containerProperties": {
+    "image": "<ECR_IMAGE_URI>",
+    "executionRoleArn": "<BATCH_EXECUTION_ROLE_ARN>",
+    "jobRoleArn": "<BATCH_JOB_ROLE_ARN>",
+    "command": [
+      "python3",
+      "scripts/check_ablation_runtime_readiness.py",
+      "--environment-label",
+      "aws-batch-job-definition-smoke"
+    ],
+    "environment": [
+      {
+        "name": "MLEBENCH_DATASET_DIR",
+        "value": "/mnt/mle-bench"
+      },
+      {
+        "name": "ABLATION_ARTIFACT_ROOT",
+        "value": "s3://autoresearch-experiments-058264252788-us-east-1/mlevolve-ai-scientist-v2-ablation"
+      },
+      {
+        "name": "AWS_DEFAULT_REGION",
+        "value": "us-east-1"
+      },
+      {
+        "name": "MLEVOLVE_CODE_BASE_URL",
+        "value": ""
+      },
+      {
+        "name": "MLEVOLVE_FEEDBACK_BASE_URL",
+        "value": ""
+      }
+    ],
+    "secrets": [
+      {
+        "name": "KAGGLE_USERNAME",
+        "valueFrom": "<KAGGLE_USERNAME_SECRET_ARN>"
+      },
+      {
+        "name": "KAGGLE_KEY",
+        "valueFrom": "<KAGGLE_KEY_SECRET_ARN>"
+      },
+      {
+        "name": "OPENAI_API_KEY",
+        "valueFrom": "<OPENAI_API_KEY_SECRET_ARN>"
+      }
+    ],
+    "resourceRequirements": [
+      {
+        "type": "VCPU",
+        "value": "8"
+      },
+      {
+        "type": "MEMORY",
+        "value": "32768"
+      }
+    ],
+    "linuxParameters": {
+      "sharedMemorySize": 8192
+    },
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/aws/batch/mlevolve-ai-scientist-v2-ablation",
+        "awslogs-region": "us-east-1",
+        "awslogs-stream-prefix": "ablation"
+      }
+    }
+  },
+  "retryStrategy": {
+    "attempts": 1
+  },
+  "timeout": {
+    "attemptDurationSeconds": 14400
+  }
+}

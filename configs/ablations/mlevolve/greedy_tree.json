@@ -1,0 +1,15 @@
+{
+  "variant_id": "greedy_tree",
+  "system": "mlevolve",
+  "component_class": "search",
+  "summary": "Always expand the best valid node without UCT exploration or top-K randomness.",
+  "research_question": "Does greedy best-node expansion outperform or underperform exploration?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "greedy_tree",
+    "ablation.search_policy": "greedy_tree",
+    "agent.search.use_stagnation_detection": false
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "variant_id": "strong_code_cheap_feedback",
+  "system": "mlevolve",
+  "component_class": "model_routing",
+  "summary": "Use the strong model for code generation and a cheaper model for feedback/review roles.",
+  "research_question": "Can strong code generation plus cheaper feedback preserve quality at lower cost?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "strong_code_cheap_feedback",
+    "ablation.model_profile": "strong_code_cheap_feedback",
+    "agent.code.model": "${oc.env:MLEVOLVE_STRONG_CODE_MODEL,gpt-4.1}",
+    "agent.feedback.model": "${oc.env:MLEVOLVE_CHEAP_FEEDBACK_MODEL,gpt-4.1-mini}"
+  }
+}
