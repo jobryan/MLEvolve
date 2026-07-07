@@ -20,15 +20,27 @@ Operational sequence for E1 (docs/self_learning_autoresearcher_plan.md §4). Spl
 - **Manifest trap**: `build_ablation_subset.py --phase` defaults to `smoke` and silently rewrites cloned manifests — always pass `--phase` explicitly.
 - Known CPU-worker caveat (arm-symmetric): denoising-dirty-documents is torch.hub-bound; expect low validity in all arms. Stays in fold_a per the frozen split; handled by flag/sensitivity analysis.
 
+## Step 0 — Build the E2 worker patch (once, at launch)
+
+E2 worker patch = the frozen v3 tarball with its repo-side code replaced by our merged
+branch (which contains the E1 anchor 602291e + the experience layer); phoenix's
+`scripts/` and `.context/external/` (mle-bench snapshot) come from the tarball —
+they are not in the anchor commit. Upload to the E2 S3 prefix, record its sha256,
+and pass both to the manifest generator.
+
 ## Step 1 — Arm A (60 runs; doubles as experience corpus)
 
-All 20 non-canary tasks × seeds {1,2,3}, micro budget, experience **off**:
+All 20 non-canary tasks × seeds {1,2,3}, micro budget, experience **off**. Manifests:
 
-```
-agent.experience.enabled=false
+```bash
+python -m experience.build_e2_manifests --arm A --phase screening \
+    --run-id-prefix e2e1-v1 --seeds 1,2,3 \
+    --worker-patch-uri <E2_PATCH_URI> --worker-patch-sha256 <E2_PATCH_SHA> \
+    --output .context/e2/manifests_arm_a.jsonl
 ```
 
-Everything else is the frozen anchor. Full logging is default (global memory on ⇒ `workspace/global_memory/records.json`; journal always written).
+Everything else is the frozen anchor (journal always written; if the memory layer
+disables on CPU workers, ingestion's journal fallback covers the corpus).
 
 ## Step 2 — Build fold stores (offline, no LLM except reflect)
 
@@ -77,6 +89,13 @@ agent.experience.excluded_task_ids=[<all fold_a task ids>]
 # arm C: same, store_dir=stores/e1_fold_b_placebo
 # arm D (10-task stratified subset): same, store_dir=stores/e1_foreign  (build gated on B-store token counts)
 ```
+
+`python -m experience.build_e2_manifests --arm B|C|D ...` emits all of this per task
+(opposite-fold store URI + own-fold exclusions computed from the frozen split; stores
+are uploaded to S3 as tarballs and downloaded to `.context/e2_store` by the job
+command, per `runtime_controls.store_uri`). Validated invariants: fold-swap routing,
+leakage exclusion lists, unique run ids, Batch timeout = wall + 900s, anchor block
+in every manifest.
 
 Fold_b tasks mirror (store `e1_fold_a`, exclude fold_b). All four mechanism flags stay at default `true` for arm B/C; E4 later toggles `agent.experience.use_{episodic,lessons,bugbook,solutions}` one at a time.
 
