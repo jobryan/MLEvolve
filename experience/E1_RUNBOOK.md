@@ -4,12 +4,21 @@ Operational sequence for E1 (docs/self_learning_autoresearcher_plan.md §4). Spl
 
 ## Gates (all must hold before step 1)
 
-- [ ] **Anchor frozen and committed**: one commit hash + model version + prompt set, recorded here: `ANCHOR=____`. The phoenix working tree is still mutating (Tranche 1R fixes are uncommitted); E1 may not start until the anchor commit exists and every E1 manifest pins it.
-- [ ] **Grading in the run path**: worker writes `grader/grade_report.json` per run (phoenix `scripts/grade_ablation_submissions.py`, landed 2026-07-02 for Tranche 1R) — verify on the E1 canary before the tranche.
-- [ ] **Base-system confirmation**: Tranche 1R results do not overturn MLEvolve as substrate.
-- [ ] Kaggle access 22/22 (verified 2026-07-02); AWS Batch queue empty; budget check vs remaining ~$600 envelope.
+- [x] **Anchor frozen and committed** (2026-07-06, from phoenix's reply memo + verified on origin):
+  - `ANCHOR = 602291e` on `jobryan/e1-mlevolve-ablation` ("Ablation harness: wired variants, MLE-bench grading, model tiers, exports")
+  - Worker patch: `tranche2_worker_patch_20260706_v3.tar.gz`, sha256 `7f01a9110b7fb2b1569ed62290892d221f42fba9b3b59cb4ebc56d2a166a3a3f` (S3 patches prefix, declared frozen ≥2 weeks; v3 required — v2 silently breaks gpt-5.x routing)
+  - Worker image digest: `sha256:5c9f3e82ec427b325f5fff731c8b0def46f537528dd57a8a079d16c778625129`; job definition `mlevolve-ai-scientist-v2-ablation-worker:1`
+  - Every E2 manifest records all four identifiers.
+- [ ] **Grading in the run path**: proven inside phoenix's pipeline (graded medal rows on NOMAD, incl. gpt-5.5); still verify once on OUR queue via the smoke canary below.
+- [ ] **Base-system confirmation**: phoenix's 149-job graded fleet (9 AIS-anchor vs 9 MLE-anchor rows, 3 tasks × 3 seeds) is running under v3; interim readout at phoenix `.context/ablation/aws_jobs/t2x_interim_readout.md` expected 04:00–08:00 PDT 2026-07-07.
+- [x] Kaggle access 22/22 (verified 2026-07-02); budget check vs remaining ~$600 envelope.
 
-Known CPU-worker caveat (arm-symmetric, from phoenix): denoising-dirty-documents is torch.hub-bound and was dropped from phoenix CPU tranches; expect low validity on it in all arms — it stays in fold_a per the frozen split, and the ceiling/flag sensitivity analysis handles it.
+## Operational notes from phoenix (2026-07-06 reply memo)
+
+- **Queue**: E2 has its own dedicated On-Demand lane, usable immediately: queue `mlevolve-e2-study-queue-serial4`, CE `mlevolve-e2-study-ce-serial4` (config: phoenix `.context/ablation/aws_jobs/e2_study_aws_environment_serial4.json`). Never use the legacy shared queue; schedule any large Spot fleet after phoenix's t2x drain. Account On-Demand quota is 16 vCPUs shared across E1/E2/E3/E4 — avoid concurrent full-capacity runs.
+- **1R mass-failure root cause (resolved)**: of 34 FAILED rows, 26 were the stop's own terminations, 7 organic Spooky wall-clock timeouts (DeBERTa-heavy first drafts at 10-node budgets), 1 infra. Not a substrate defect. Mitigations to inherit: keep the anchor's no-GPU/offline prompt contracts; prefer TF-IDF-first text baselines at micro budgets; set Batch attempt timeout ≥ agent wall budget + 900s so overruns can't destroy artifacts.
+- **Manifest trap**: `build_ablation_subset.py --phase` defaults to `smoke` and silently rewrites cloned manifests — always pass `--phase` explicitly.
+- Known CPU-worker caveat (arm-symmetric): denoising-dirty-documents is torch.hub-bound; expect low validity in all arms. Stays in fold_a per the frozen split; handled by flag/sensitivity analysis.
 
 ## Step 1 — Arm A (60 runs; doubles as experience corpus)
 
