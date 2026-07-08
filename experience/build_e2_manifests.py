@@ -131,7 +131,11 @@ def build_manifest(
     runtime_controls: Dict[str, Any] = {
         "worker_patch_uri": worker_patch_uri,
         "worker_patch_sha256": worker_patch_sha256,
-        "batch_attempt_timeout_seconds": budget["wall_time_seconds"] + 900,
+        # wall + 2400: exec.timeout equals the wall budget in the anchored
+        # entrypoint, so one node still executing at the search deadline can
+        # run up to a full extra wall budget; canary v5 tabular died at
+        # wall+931s under the old +900 margin. Unused timeout costs nothing.
+        "batch_attempt_timeout_seconds": budget["wall_time_seconds"] + 2400,
     }
 
     if arm != "A":
