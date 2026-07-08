@@ -93,6 +93,9 @@ def run():
             try:
                 logger.info(f"🔨 Generating draft {draft_idx + 1}/{min(initial_draft_count, total_steps)} (code only)")
                 cur_node = step_task_generate_only()
+                if agent.time_budget_exhausted:
+                    logger.info("⏱️  Time budget exhausted, stopping draft generation early")
+                    break
                 pending_draft_nodes.append(cur_node)
                 logger.info(f"✅ Draft {draft_idx + 1} code generated: node.id={cur_node.id}, added to virtual_root.children")
 
@@ -156,10 +159,16 @@ def run():
                         if completed == total_steps:
                             logger.info(journal_to_string_tree(journal))
 
-                    if completed + len(futures) < total_steps:
+                    if agent.time_budget_exhausted:
+                        logger.info("⏱️  Time budget exhausted, not submitting new tasks")
+                    elif completed + len(futures) < total_steps:
                         futures.add(executor.submit(step_task, cur_node))
                         logger.info(f"📤 Submitted next task based on node {cur_node.id if cur_node else 'None'}")
                     logger.info(f"📊 Progress: {completed}/{total_steps} steps completed, {len(futures)} tasks running")
+
+                if agent.time_budget_exhausted and not futures:
+                    logger.info(f"⏱️  Stopping search loop early: time budget exhausted ({completed}/{total_steps} steps completed)")
+                    break
         except KeyboardInterrupt:
             interrupted = True
             logger.info("KeyboardInterrupt received, terminating subprocesses and shutting down...")

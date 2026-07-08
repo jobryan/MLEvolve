@@ -57,6 +57,7 @@ class AgentSearch:
         self.journal_lock = threading.Lock()
         self.save_node_lock = threading.Lock()
         self.start_time = time.time()
+        self.time_budget_exhausted = False
         self.use_stepwise_generation = getattr(self.acfg, "use_stepwise_generation", True)
 
         self.next_branch_id = 1
@@ -133,6 +134,24 @@ class AgentSearch:
 
     def is_root(self, node: SearchNode):
         return node.id is self.virtual_root.id
+
+    def has_time_for_new_node(self) -> bool:
+        """Time-aware scheduling: refuse to start a node that cannot finish within the wall-clock budget.
+
+        Keeps `finalize_reserve_seconds` free at the end of the run so the final
+        artifact sync/grading can complete before the outer job timeout.
+        """
+        finalize_reserve = int(getattr(getattr(self.cfg, "ablation", None), "finalize_reserve_seconds", 300) or 300)
+        remaining = self.acfg.time_limit - (time.time() - self.start_time)
+        required = self.cfg.exec.timeout + finalize_reserve
+        if remaining < required:
+            logger.info(
+                f"[time-budget] Stopping search: remaining={remaining:.0f}s < exec.timeout ({self.cfg.exec.timeout}s) "
+                f"+ finalize_reserve ({finalize_reserve}s). Not starting a node that cannot finish."
+            )
+            self.time_budget_exhausted = True
+            return False
+        return True
 
     def _run_single_step(
         self,
@@ -277,6 +296,9 @@ class AgentSearch:
         execute_immediately: bool = True,
         init_solution_path: Optional[str] = None,
     ) -> SearchNode:
+        if not self.has_time_for_new_node():
+            return self.virtual_root
+
         if not self.journal.nodes or self.data_preview is None:
             self.update_data_preview()
             self.search_start_time = time.time()

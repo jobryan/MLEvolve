@@ -127,6 +127,7 @@
       "small_image": 8,
       "gpu_image_medium": 16,
       "gpu_image_large": 32,
+      "tabular_medium": 4,
       "tabular_large": 16,
       "audio_medium": 16
     },
@@ -135,6 +136,7 @@
       "small_image": 32768,
       "gpu_image_medium": 65536,
       "gpu_image_large": 131072,
+      "tabular_medium": 30000,
       "tabular_large": 65536,
       "audio_medium": 65536
     },
@@ -143,6 +145,7 @@
       "small_image": 0,
       "gpu_image_medium": 1,
       "gpu_image_large": 1,
+      "tabular_medium": 0,
       "tabular_large": 0,
       "audio_medium": 0
     }

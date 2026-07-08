@@ -1,0 +1,14 @@
+{
+  "variant_id": "retrieval_memory_implant",
+  "system": "ai_scientist_v2",
+  "component_class": "memory",
+  "summary": "Replace LLM journal-memory summaries with retrieval-style top-K records.",
+  "research_question": "Does a cheap lexical retrieval memory match LLM-summarized journal memory?",
+  "inherits": ".context/external/AI-Scientist-v2/bfts_config.yaml",
+  "enabled_phases": ["smoke", "screening", "main"],
+  "cli_flags": ["--skip_writeup", "--skip_review"],
+  "overrides": {
+    "adapter.shared_benchmark": true,
+    "adapter.memory_backend": "retrieval"
+  }
+}

@@ -228,15 +228,22 @@ class AblationExporter:
             return []
         return list(nodes)
 
+    def _novelty_lambda(self) -> float:
+        try:
+            return float(getattr(self.acfg, "novelty_lambda", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
     def _diversity(self, node: "SearchNode") -> dict[str, Any]:
         summary = summarize_node_diversity(node, self._previous_nodes())
         embedding = summary.pop("embedding")
+        embedding_backend = summary.get("embedding_backend", "hashing-token-v1")
         embedding_path = self.embeddings_dir / f"{node.id}.json"
         embedding_path.write_text(
             json.dumps(
                 {
                     "node_id": node.id,
-                    "embedding_model": "hashing-token-v1",
+                    "embedding_model": embedding_backend,
                     "embedding": embedding,
                 },
                 sort_keys=True,
@@ -245,6 +252,7 @@ class AblationExporter:
             encoding="utf-8",
         )
         summary["embedding_path"] = self._relative(embedding_path)
+        summary["novelty_lambda_in_effect"] = self._novelty_lambda()
         return summary
 
     def _error(self, node: "SearchNode") -> dict[str, Any] | None:

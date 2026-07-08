@@ -15,6 +15,16 @@ workspace_dir: ./runs
 preprocess_data: True
 copy_data: False
 
+# Archive active MLEvolve logs to S3 when the combined local log size crosses
+# the threshold, then truncate the local files so long experiments do not fill
+# the worker disk. The URI can also be supplied with MLEVOLVE_LOG_BACKUP_URI or
+# ABLATION_ARTIFACT_ROOT.
+log_backup:
+  enabled: True
+  uri: "s3://autoresearch-experiments-058264252788-us-east-1/mlevolve-ai-scientist-v2-ablation"
+  threshold_bytes: 1073741824
+  check_interval_seconds: 30
+
 # Resource
 start_cpu_id: 0
 cpu_number: 21
@@ -174,3 +184,4 @@ ablation:
   novelty_in_reward: False
   operator_set: "full"
   model_profile: "default"
+  finalize_reserve_seconds: 300   # wall-clock reserve kept free for final sync/grading; search stops when remaining < exec.timeout + reserve

@@ -9,7 +9,7 @@ from engine.search_node import SearchNode
 from engine.conditions import should_trigger_branch_fusion
 from agents.memory.ablation_controls import reset_memory_events
 from agents.workflow_controls import operator_allowed
-from utils.diversity_novelty import nearest_neighbor_distance, node_summary_text, previous_node_texts
+from utils.diversity_novelty import cosine_distance, get_embedding, node_summary_text
 logger = logging.getLogger("MLEvolve")
 
 
@@ -56,15 +56,38 @@ def _novelty_lambda(agent) -> float:
         return 0.0
 
 
+def _node_embedding(node: SearchNode) -> tuple[list[float], str]:
+    """Embed a node with the configured backend, caching the vector on the node."""
+    cached = getattr(node, "_novelty_embedding", None)
+    cached_backend = getattr(node, "_novelty_embedding_backend", None)
+    if cached is not None and cached_backend is not None:
+        return cached, cached_backend
+    vector, backend_label = get_embedding(node_summary_text(node))
+    setattr(node, "_novelty_embedding", vector)
+    setattr(node, "_novelty_embedding_backend", backend_label)
+    return vector, backend_label
+
+
 def _node_novelty(agent, node: SearchNode) -> float:
     cached = getattr(node, "novelty_score", None)
     if cached is not None:
         return float(cached)
-    previous_text = previous_node_texts(_iter_known_nodes(agent), current_node=node)
-    distance = nearest_neighbor_distance(node_summary_text(node), previous_text)
-    novelty = 0.0 if distance is None else float(distance)
-    setattr(node, "novelty_score", novelty)
-    return novelty
+    current, current_backend = _node_embedding(node)
+    node_id = getattr(node, "id", None)
+    distances: list[float] = []
+    for other in _iter_known_nodes(agent):
+        if node_id is not None and getattr(other, "id", None) == node_id:
+            continue
+        if not node_summary_text(other).strip():
+            continue
+        other_vector, other_backend = _node_embedding(other)
+        if other_backend != current_backend:
+            # Mixed backends (e.g. mid-run fallback): distances are meaningless.
+            continue
+        distances.append(cosine_distance(current, other_vector))
+    novelty = min(distances) if distances else 0.0
+    setattr(node, "novelty_score", float(novelty))
+    return float(novelty)
 
 
 def _stable_node_key(node: SearchNode) -> tuple:

@@ -1,6 +1,8 @@
 """Code Review Agent: LLM-based code review and fix for node code."""
 
 import logging
+import os
+import re
 import time
 from typing import cast
 
@@ -60,8 +62,55 @@ CODE_REVIEW_SPEC = FunctionSpec(
 )
 
 
+class DraftContractViolation(RuntimeError):
+    """Raised when a first draft violates the cheap-first-draft contract (MLEVOLVE_NO_GPU=1)."""
+
+
+# Deterministic rejections for first drafts on CPU-only workers: pretrained
+# downloads dominate the wall-clock budget before any signal is produced.
+PRETRAINED_DOWNLOAD_PATTERNS = (
+    (re.compile(r"torch\.hub\.load\s*\("), "torch.hub.load(...) downloads pretrained weights"),
+    (
+        re.compile(r"\.from_pretrained\s*\(\s*[\"'](?![./~])"),
+        ".from_pretrained(...) with a hub model id instead of a local path",
+    ),
+    (
+        re.compile(r"timm\.create_model\s*\([^)]*pretrained\s*=\s*True"),
+        "timm.create_model(..., pretrained=True) downloads pretrained weights",
+    ),
+)
+
+CHEAP_DRAFT_INSTRUCTION = (
+    "This is a FIRST DRAFT on a CPU-only worker: keep training cheap (subsample the data, "
+    "use few epochs and a small model) so the run finishes well within the execution timeout."
+)
+
+
+def draft_contract_active(node: SearchNode) -> bool:
+    """Cheap-first-draft contract applies to Draft nodes on CPU-only (MLEVOLVE_NO_GPU=1) workers."""
+    return os.getenv("MLEVOLVE_NO_GPU") == "1" and str(getattr(node, "stage", "")) == "draft"
+
+
+def draft_contract_violations(code: str) -> list[str]:
+    """Return descriptions of pretrained-download patterns found in the code."""
+    return [label for pattern, label in PRETRAINED_DOWNLOAD_PATTERNS if pattern.search(code)]
+
+
 def run(agent, node: SearchNode) -> str:
     logger.debug(f"[review] node {node.id}")
+
+    contract_active = draft_contract_active(node)
+    if contract_active:
+        violations = draft_contract_violations(node.code)
+        if violations:
+            message = (
+                "Cheap-first-draft contract violation (MLEVOLVE_NO_GPU=1, Draft node): "
+                + "; ".join(violations)
+                + ". First drafts must not download pretrained models; train a small model "
+                "from scratch and keep the draft cheap (e.g. subsample the data)."
+            )
+            logger.warning(f"Code review rejected draft node {node.id} before LLM review: {message}")
+            raise DraftContractViolation(message)
 
     prompt = get_code_review_prompt(
         task_desc=agent.task_desc,
@@ -74,6 +123,8 @@ def run(agent, node: SearchNode) -> str:
         prompt["Instructions"]["Implementation guideline"].extend(internet_clarification)
     else:
         prompt["Instructions"]["⚠️ Internet Access Clarification"] = internet_clarification
+    if contract_active:
+        prompt["Instructions"]["Cheap first draft (CPU-only worker)"] = [CHEAP_DRAFT_INSTRUCTION]
 
     use_diff_for_review = agent.acfg.use_diff_mode
     max_retries = 3

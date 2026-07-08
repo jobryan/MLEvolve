@@ -123,6 +123,14 @@ class InitSolutionConfig:
 
 
 @dataclass
+class LogBackupConfig:
+    enabled: bool = True
+    uri: str = ""
+    threshold_bytes: int = 1073741824
+    check_interval_seconds: float = 30.0
+
+
+@dataclass
 class AblationConfig:
     enabled: bool = False
     schema_version: str = "1.0"
@@ -142,6 +150,7 @@ class AblationConfig:
     novelty_in_reward: bool = False
     operator_set: str = "full"
     model_profile: str = "default"
+    finalize_reserve_seconds: int = 300
 
 
 @dataclass
@@ -175,6 +184,7 @@ class Config(Hashable):
 
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
+    log_backup: LogBackupConfig = field(default_factory=LogBackupConfig)
     ablation: AblationConfig = field(default_factory=AblationConfig)
 
 
