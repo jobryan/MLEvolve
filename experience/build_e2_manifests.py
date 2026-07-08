@@ -153,6 +153,11 @@ def build_manifest(
         "system": "mlevolve",
         "run_id": run_id,
         "seed": seed,
+        # Flat keys consumed by scripts/run_ablation_manifest.py on the worker
+        # (the nested task/variant blocks below are audit metadata; the worker
+        # reads manifest["task_id"] / manifest["variant_id"] directly).
+        "task_id": task_id,
+        "variant_id": spec["variant_id"],
         "task": task,
         "variant": {
             "component_class": "experience_layer",
