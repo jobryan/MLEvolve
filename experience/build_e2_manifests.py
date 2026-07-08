@@ -156,8 +156,13 @@ def build_manifest(
         # Flat keys consumed by scripts/run_ablation_manifest.py on the worker
         # (the nested task/variant blocks below are audit metadata; the worker
         # reads manifest["task_id"] / manifest["variant_id"] directly).
+        # Version strings must be non-empty: the entrypoint forwards them as
+        # `key=value` CLI args and OmegaConf parses an empty value as None,
+        # which fails validation against AblationConfig's str fields.
         "task_id": task_id,
         "variant_id": spec["variant_id"],
+        "task_manifest_version": "mle-bench-lite-v1",
+        "variant_registry_version": "e2-experience-arms-v1",
         "task": task,
         "variant": {
             "component_class": "experience_layer",
