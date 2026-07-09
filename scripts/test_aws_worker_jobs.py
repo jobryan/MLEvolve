@@ -15,10 +15,15 @@ DISPATCH = ROOT / "scripts/run_ablation_manifest.py"
 BUILD_JOBS = ROOT / "scripts/build_aws_ablation_jobs.py"
 sys.path.insert(0, str(ROOT / "scripts"))
 from build_aws_ablation_jobs import (  # noqa: E402
+    artifact_sync_timeout_buffer_seconds,
+    ai_scientist_budget_environment,
     ai_scientist_stage_budget,
+    build_job_spec,
     model_tier_environment,
     worker_patch_command,
 )
+
+WORKER_RUN_SH = ROOT / "scripts/worker_run.sh"
 
 
 def base_manifest(system: str, variant_id: str) -> dict:
@@ -137,7 +142,14 @@ def test_aws_job_spec_rendering() -> None:
         ais_manifest_path = tmp / "ais.json"
         output_jsonl = tmp / "jobs.jsonl"
         write_json(manifest_path, base_manifest("mlevolve", "default_mcgs"))
-        write_json(ais_manifest_path, base_manifest("ai_scientist_v2", "stage_as_operator_default"))
+        ais_manifest = base_manifest("ai_scientist_v2", "stage_as_operator_default")
+        ais_manifest["budget"]["max_debug_attempts"] = 2
+        ais_manifest["runtime_controls"] = {
+            "ai_scientist_budget_patch": True,
+            "ais_exec_timeout": 900,
+            "worker_patch_uri": "s3://example-bucket/patches/tranche3_worker_patch_v4b_test.tar.gz",
+        }
+        write_json(ais_manifest_path, ais_manifest)
 
         result = run_command(
             [
@@ -166,28 +178,18 @@ def test_aws_job_spec_rendering() -> None:
         assert spec["timeout"]["attemptDurationSeconds"] == 14700
         command = spec["containerOverrides"]["command"]
         assert command[:2] == ["bash", "-lc"]
-        assert "mlebench prepare -c \"$TASK_ID\" --data-dir \"$MLEBENCH_DATASET_DIR\"" in command[2]
-        assert "python3 scripts/run_ablation_manifest.py --manifest \"$MANIFEST_REF\"" in command[2]
-        assert "python3 scripts/grade_ablation_submissions.py --output-dir \"$OUTPUT_DIR\"" in command[2]
-        assert "|| true" in command[2]
-        assert "ARTIFACT_DEST=\"${ABLATION_ARTIFACT_ROOT%/}/${PHASE}/${RUN_ID}/\"" in command[2]
-        assert "boto3.client" in command[2]
-        assert "upload_file" in command[2]
-        # ARTIFACT_DEST must be computed before the run so the checkpoint loop can use it.
-        assert command[2].index("ARTIFACT_DEST=\"${ABLATION_ARTIFACT_ROOT%/}/${PHASE}/${RUN_ID}/\"") < command[2].index(
-            "python3 scripts/run_ablation_manifest.py"
-        )
-        # Periodic checkpoint sync keeps partial artifacts durable if the job hits the wall timeout.
-        assert "CHECKPOINT_PID=$!" in command[2]
-        assert "while true; do sleep 300;" in command[2]
-        assert "kill \"$CHECKPOINT_PID\"" in command[2]
-        # The checkpoint loop starts before the run and is killed before the final sync.
-        assert command[2].index("CHECKPOINT_PID=$!") < command[2].index("python3 scripts/run_ablation_manifest.py")
-        assert command[2].index("kill \"$CHECKPOINT_PID\"") < command[2].index("SYNC_STATUS=0;")
-        # Exit-code semantics are unchanged: final sync status still decides when RUN_STATUS==0.
-        assert "if [ \"$RUN_STATUS\" -ne 0 ]; then exit \"$RUN_STATUS\"; fi" in command[2]
-        assert "exit \"$SYNC_STATUS\"" in command[2]
+        # The command is now a short bootstrap: export params, then hand off to
+        # worker_run.sh (which arrives via the worker patch tarball).
+        assert command[2].startswith("set -euo pipefail; export ")
+        assert "SYSTEM=mlevolve" in command[2]
+        assert "TASK_ID=spooky-author-identification" in command[2]
+        assert "PHASE=smoke" in command[2]
+        assert "RUN_ID=smoke-mlevolve-default_mcgs-spooky-seed-1" in command[2]
+        assert "OUTPUT_DIR=.context/ablation/runs/smoke-mlevolve-default_mcgs" in command[2]
         assert "MANIFEST_REF=s3://example-bucket/manifests/" in command[2]
+        assert command[2].endswith("bash scripts/worker_run.sh")
+        # No mlevolve job should carry the AIS budget-patch env.
+        assert "T3_AIS_" not in command[2]
         resources = {item["type"]: item["value"] for item in spec["containerOverrides"]["resourceRequirements"]}
         assert resources["VCPU"] == "8"
         assert resources["MEMORY"] == "32768"
@@ -199,17 +201,177 @@ def test_aws_job_spec_rendering() -> None:
         # Anchor jobs must never inherit model-tier routing env vars.
         assert "MLEVOLVE_STRONG_CODE_MODEL" not in env
 
-        ais_command = rows[1]["containerOverrides"]["command"]
+        ais_spec = rows[1]
+        ais_command = ais_spec["containerOverrides"]["command"]
         assert ais_command[:2] == ["bash", "-lc"]
-        assert "bfts_config.yaml" in ais_command[2]
-        assert "model: gpt-4.1" in ais_command[2]
-        assert "generate_report: False" in ais_command[2]
-        assert "if not args.skip_writeup" in ais_command[2]
-        assert "keywords = []" in ais_command[2]
         assert "SYSTEM=ai_scientist_v2" in ais_command[2]
-        assert "AI_EXPERIMENTS_DIR=\".context/external/AI-Scientist-v2-ablation/experiments\"" in ais_command[2]
-        assert "ai_scientist_experiments" in ais_command[2]
-        assert "shutil.copytree" in ais_command[2]
+        # AIS budget-patch parameters ride env vars consumed by worker_run.sh.
+        assert "T3_AIS_BUDGET_PATCH=1" in ais_command[2]
+        # min(ais_exec_timeout=900, wall=14400) clamped to [60, 3600] -> 900.
+        assert "T3_AIS_EXEC_TIMEOUT=900" in ais_command[2]
+        assert "T3_AIS_STAGE1=5" in ais_command[2]
+        assert "T3_AIS_STAGE2=1" in ais_command[2]
+        assert "T3_AIS_STAGE3=1" in ais_command[2]
+        assert "T3_AIS_STAGE4=3" in ais_command[2]
+        assert "T3_AIS_STEPS=10" in ais_command[2]
+        assert "T3_AIS_NUM_DRAFTS=2" in ais_command[2]
+        assert "T3_AIS_DEBUG_DEPTH=2" in ais_command[2]
+        # The patch bootstrap stays inline; everything else lives in worker_run.sh.
+        assert "download_file" in ais_command[2]
+        assert "tranche3_worker_patch_v4b_test.tar.gz" in ais_command[2]
+        assert ais_command[2].endswith("bash scripts/worker_run.sh")
+        # Regression guard: AWS Batch rejects containerOverrides above 8192 chars.
+        assert len(json.dumps(ais_spec["containerOverrides"])) <= 8000
+        assert len(json.dumps(spec["containerOverrides"])) <= 8000
+
+
+def test_worker_run_sh_contract() -> None:
+    # The run body shipped in the patch tarball must be valid bash.
+    result = run_command(["bash", "-n", str(WORKER_RUN_SH)])
+    assert result.returncode == 0, result.stderr
+
+    script = WORKER_RUN_SH.read_text(encoding="utf-8")
+    assert "mlebench prepare -c \"$TASK_ID\" --data-dir \"$MLEBENCH_DATASET_DIR\"" in script
+    assert "python3 scripts/run_ablation_manifest.py --manifest \"$MANIFEST_REF\"" in script
+    assert "python3 scripts/grade_ablation_submissions.py --output-dir \"$OUTPUT_DIR\"" in script
+    assert "|| true" in script
+    assert "ARTIFACT_DEST=\"${ABLATION_ARTIFACT_ROOT%/}/${PHASE}/${RUN_ID}/\"" in script
+    assert "boto3" in script
+    assert "upload_file" in script
+    # ARTIFACT_DEST must be computed before the run so the checkpoint loop can use it.
+    assert script.index("ARTIFACT_DEST=\"${ABLATION_ARTIFACT_ROOT%/}/${PHASE}/${RUN_ID}/\"") < script.index(
+        "python3 scripts/run_ablation_manifest.py"
+    )
+    # Periodic checkpoint sync keeps partial artifacts durable if the job hits the wall timeout.
+    assert "CHECKPOINT_PID=$!" in script
+    assert "sleep 300" in script
+    assert "kill \"$CHECKPOINT_PID\"" in script
+    assert script.index("CHECKPOINT_PID=$!") < script.index("python3 scripts/run_ablation_manifest.py")
+    assert script.index("kill \"$CHECKPOINT_PID\"") < script.index("SYNC_STATUS=0")
+    # Checkpoint uploads must exclude copied input data and verbose logs.
+    assert "workspace/input/" in script
+    assert ".verbose.log" in script
+    assert "mode == 'checkpoint'" in script
+    # AIS budget patch is applied only for ai_scientist_v2 with the env latch set.
+    assert "worker_ais_budget_patch.py" in script
+    assert "T3_AIS_BUDGET_PATCH" in script
+    # AIS artifact recovery and copy steps survive the move out of the inline command.
+    assert "AI_EXPERIMENTS_DIR=\".context/external/AI-Scientist-v2-ablation/experiments\"" in script
+    assert "ai_scientist_experiments" in script
+    assert "recover_ai_scientist_submission.py" in script
+    # Exit-code semantics are unchanged: final sync status decides when RUN_STATUS==0.
+    assert "if [ \"$RUN_STATUS\" -ne 0 ]; then exit \"$RUN_STATUS\"; fi" in script
+    assert script.rstrip().endswith("exit \"$SYNC_STATUS\"")
+
+
+def test_worker_ais_budget_patch_applies_replacements() -> None:
+    with tempfile.TemporaryDirectory() as raw_tmp:
+        tmp = Path(raw_tmp)
+        (tmp / "bfts_config.yaml").write_text(
+            "model: anthropic.claude-3-5-sonnet-20241022-v2:0\n"
+            "generate_report: True\n"
+            "  timeout: 3600\n"
+            "  num_workers: 4\n"
+            "    num_seeds: 3\n"
+            "    num_drafts: 3\n"
+            "    max_debug_depth: 3\n"
+            "    stage1_max_iters: 20\n"
+            "    stage2_max_iters: 12\n"
+            "    stage3_max_iters: 12\n"
+            "    stage4_max_iters: 18\n"
+            "  steps: 5\n",
+            encoding="utf-8",
+        )
+        (tmp / "launch_scientist_bfts.py").write_text(
+            "    aggregate_plots(base_folder=idea_dir, model=args.model_agg_plots)\n\n"
+            '    shutil.rmtree(osp.join(idea_dir, "experiment_results"))\n'
+            '    keywords = ["python", "torch", "mp", "bfts", "experiment"]\n',
+            encoding="utf-8",
+        )
+        result = run_command(
+            [
+                sys.executable,
+                str(ROOT / "scripts/worker_ais_budget_patch.py"),
+                "--root",
+                str(tmp),
+                "--exec-timeout",
+                "900",
+                "--stage1",
+                "5",
+                "--stage2",
+                "1",
+                "--stage3",
+                "1",
+                "--stage4",
+                "3",
+                "--steps",
+                "10",
+                "--num-drafts",
+                "2",
+                "--debug-depth",
+                "2",
+            ]
+        )
+        assert result.returncode == 0, result.stderr
+        config = (tmp / "bfts_config.yaml").read_text(encoding="utf-8")
+        assert "model: gpt-4.1" in config
+        assert "generate_report: False" in config
+        assert "  timeout: 900" in config
+        assert "  num_workers: 1" in config
+        assert "    num_drafts: 2" in config
+        assert "    max_debug_depth: 2" in config
+        assert "    stage1_max_iters: 5" in config
+        assert "    stage4_max_iters: 3" in config
+        assert "  steps: 10" in config
+        launcher = (tmp / "launch_scientist_bfts.py").read_text(encoding="utf-8")
+        assert "if not args.skip_writeup" in launcher
+        assert "keywords = []" in launcher
+
+
+def test_ai_scientist_budget_environment() -> None:
+    # No budget patch flag -> no env at all.
+    assert ai_scientist_budget_environment({"wall_time_seconds": 3000}, {}) == {}
+    # Explicit override rides min(override, wall) with the [60, 3600] clamp.
+    env = ai_scientist_budget_environment(
+        {"wall_time_seconds": 3000, "max_nodes": 10, "max_debug_attempts": 2},
+        {"ai_scientist_budget_patch": True, "ais_exec_timeout": 900},
+    )
+    assert env["T3_AIS_BUDGET_PATCH"] == "1"
+    assert env["T3_AIS_EXEC_TIMEOUT"] == "900"
+    assert env["T3_AIS_STAGE1"] == "5"
+    assert env["T3_AIS_STEPS"] == "10"
+    assert env["T3_AIS_NUM_DRAFTS"] == "2"
+    assert env["T3_AIS_DEBUG_DEPTH"] == "2"
+    # Without an override the wall budget is clamped to <= 3600 as before.
+    env = ai_scientist_budget_environment(
+        {"wall_time_seconds": 14400, "max_nodes": 3},
+        {"ai_scientist_budget_patch": True},
+    )
+    assert env["T3_AIS_EXEC_TIMEOUT"] == "3600"
+    assert env["T3_AIS_NUM_DRAFTS"] == "1"
+    assert env["T3_AIS_DEBUG_DEPTH"] == "1"
+
+
+def test_timeout_buffer_can_be_increased_per_manifest() -> None:
+    manifest = base_manifest("mlevolve", "default_mcgs")
+    manifest["runtime_controls"] = {"batch_timeout_buffer_seconds": 1200}
+    spec = build_job_spec(
+        manifest,
+        {
+            "aws_batch_defaults": {
+                "vcpus_by_resource_class": {"small_cpu": 8},
+                "memory_mb_by_resource_class": {"small_cpu": 32768},
+                "gpus_by_resource_class": {"small_cpu": 0},
+            }
+        },
+        job_queue="ablation-queue",
+        job_definition="ablation-jobdef",
+        manifest_base_uri="s3://example-bucket/manifests",
+        include_tags=False,
+    )
+    assert spec["timeout"]["attemptDurationSeconds"] == 15600
+    assert artifact_sync_timeout_buffer_seconds({"batch_timeout_buffer_seconds": 60}) == 300
+    assert artifact_sync_timeout_buffer_seconds({"batch_timeout_buffer_seconds": "bad"}) == 300
 
 
 def test_model_tier_environment_only_on_routing_variants() -> None:
@@ -271,6 +433,10 @@ def test_worker_patch_command_downloads_s3_tarball() -> None:
 if __name__ == "__main__":
     test_manifest_dispatch_dry_run()
     test_aws_job_spec_rendering()
+    test_worker_run_sh_contract()
+    test_worker_ais_budget_patch_applies_replacements()
+    test_ai_scientist_budget_environment()
+    test_timeout_buffer_can_be_increased_per_manifest()
     test_model_tier_environment_only_on_routing_variants()
     test_ai_scientist_stage_budget_prioritizes_initial_implementations()
     test_worker_patch_command_downloads_s3_tarball()

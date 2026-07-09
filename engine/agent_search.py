@@ -31,6 +31,14 @@ logger = logging.getLogger("MLEvolve")
 
 ExecCallbackType = Callable[[str, bool], ExecutionResult]
 
+# Minimum per-node execution window (seconds) assumed by the time-budget guard.
+# Dispatchers may set exec.timeout to the full wall budget, which would make a
+# guard of the form `remaining < exec.timeout + reserve` unsatisfiable as soon
+# as anything (e.g. data prep) consumes headroom. Capping the required window
+# at MIN_NODE_WINDOW keeps the guard meaningful while still refusing to start
+# nodes that cannot plausibly finish.
+MIN_NODE_WINDOW = 600
+
 class AgentSearch:
     def __init__(
             self,
@@ -58,6 +66,7 @@ class AgentSearch:
         self.save_node_lock = threading.Lock()
         self.start_time = time.time()
         self.time_budget_exhausted = False
+        self._time_budget_stop_logged = False
         self.use_stepwise_generation = getattr(self.acfg, "use_stepwise_generation", True)
 
         self.next_branch_id = 1
@@ -143,12 +152,16 @@ class AgentSearch:
         """
         finalize_reserve = int(getattr(getattr(self.cfg, "ablation", None), "finalize_reserve_seconds", 300) or 300)
         remaining = self.acfg.time_limit - (time.time() - self.start_time)
-        required = self.cfg.exec.timeout + finalize_reserve
+        node_window = min(self.cfg.exec.timeout, MIN_NODE_WINDOW)
+        required = finalize_reserve + node_window
         if remaining < required:
-            logger.info(
-                f"[time-budget] Stopping search: remaining={remaining:.0f}s < exec.timeout ({self.cfg.exec.timeout}s) "
-                f"+ finalize_reserve ({finalize_reserve}s). Not starting a node that cannot finish."
-            )
+            if not self._time_budget_stop_logged:
+                logger.info(
+                    f"[time-budget] Stopping search: remaining={remaining:.0f}s < finalize_reserve ({finalize_reserve}s) "
+                    f"+ min(exec.timeout ({self.cfg.exec.timeout}s), MIN_NODE_WINDOW ({MIN_NODE_WINDOW}s)). "
+                    "Not starting a node that cannot finish."
+                )
+                self._time_budget_stop_logged = True
             self.time_budget_exhausted = True
             return False
         return True

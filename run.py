@@ -96,6 +96,9 @@ def run():
                 if agent.time_budget_exhausted:
                     logger.info("⏱️  Time budget exhausted, stopping draft generation early")
                     break
+                if cur_node is None or agent.is_root(cur_node):
+                    logger.warning(f"⚠️  Draft {draft_idx + 1} returned the virtual-root sentinel; skipping it")
+                    continue
                 pending_draft_nodes.append(cur_node)
                 logger.info(f"✅ Draft {draft_idx + 1} code generated: node.id={cur_node.id}, added to virtual_root.children")
 
@@ -135,10 +138,22 @@ def run():
                     futures.add(executor.submit(step_task))
                     logger.info(f"📤 Submitted initial step_task to fill thread pool")
 
+            # Belt-and-suspenders: count how many times we observe the exhausted
+            # flag or a virtual-root sentinel result. Each observation must end in
+            # either a hard exit or a drained pool; if bookkeeping ever lets more
+            # than 3 slip through, force-exit rather than spin forever.
+            exhaustion_observations = 0
+            force_stop = False
             while completed < total_steps:
                 done, _ = wait(futures, return_when=FIRST_COMPLETED, timeout=1.0)
 
                 if not done:
+                    if not futures:
+                        if agent.time_budget_exhausted:
+                            logger.info(f"⏱️  Stopping search loop: time budget exhausted and no tasks running ({completed}/{total_steps} steps completed)")
+                            break
+                        logger.warning(f"⚠️  No tasks running and no completions; exiting search loop ({completed}/{total_steps} steps completed)")
+                        break
                     continue  # timeout, no completed futures, retry (allows SIGINT handling)
 
                 for fut in done:
@@ -159,8 +174,17 @@ def run():
                         if completed == total_steps:
                             logger.info(journal_to_string_tree(journal))
 
+                    is_sentinel = cur_node is not None and agent.is_root(cur_node)
+                    if agent.time_budget_exhausted or is_sentinel:
+                        exhaustion_observations += 1
+                        if exhaustion_observations > 3:
+                            logger.warning("⚠️  Time-budget exhaustion/sentinel observed more than 3 times; forcing search loop exit regardless of phase bookkeeping")
+                            force_stop = True
+
                     if agent.time_budget_exhausted:
                         logger.info("⏱️  Time budget exhausted, not submitting new tasks")
+                    elif is_sentinel:
+                        logger.info("⚠️  Virtual-root sentinel returned; not submitting a successor task for it")
                     elif completed + len(futures) < total_steps:
                         futures.add(executor.submit(step_task, cur_node))
                         logger.info(f"📤 Submitted next task based on node {cur_node.id if cur_node else 'None'}")
@@ -168,6 +192,9 @@ def run():
 
                 if agent.time_budget_exhausted and not futures:
                     logger.info(f"⏱️  Stopping search loop early: time budget exhausted ({completed}/{total_steps} steps completed)")
+                    break
+                if force_stop:
+                    logger.warning(f"⏱️  Hard-stopping search loop ({completed}/{total_steps} steps completed, {len(futures)} tasks abandoned)")
                     break
         except KeyboardInterrupt:
             interrupted = True

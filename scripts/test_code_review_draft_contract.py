@@ -57,9 +57,16 @@ code_review_agent = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(code_review_agent)
 
 
-def make_agent() -> SimpleNamespace:
+JIGSAW_TASK_DESC = """
+Toxic Comment Classification Challenge.
+Input column: comment_text.
+Targets and submission columns: toxic, severe_toxic, obscene, threat, insult, identity_hate.
+"""
+
+
+def make_agent(task_desc: str = "task") -> SimpleNamespace:
     return SimpleNamespace(
-        task_desc="task",
+        task_desc=task_desc,
         cfg=SimpleNamespace(pretrain_model_dir=""),
         acfg=SimpleNamespace(use_diff_mode=True, code=SimpleNamespace(model="test-model", temp=0.0)),
     )
@@ -69,14 +76,19 @@ def make_node(code: str, stage: str = "draft") -> SimpleNamespace:
     return SimpleNamespace(id="node-1", stage=stage, code=code)
 
 
-def run_review(code: str, stage: str = "draft", no_gpu: str | None = "1") -> str:
+def run_review(
+    code: str,
+    stage: str = "draft",
+    no_gpu: str | None = "1",
+    task_desc: str = "task",
+) -> str:
     saved = os.environ.get("MLEVOLVE_NO_GPU")
     try:
         os.environ.pop("MLEVOLVE_NO_GPU", None)
         if no_gpu is not None:
             os.environ["MLEVOLVE_NO_GPU"] = no_gpu
         LLM_CALLS.clear()
-        return code_review_agent.run(make_agent(), make_node(code, stage=stage))
+        return code_review_agent.run(make_agent(task_desc=task_desc), make_node(code, stage=stage))
     finally:
         if saved is None:
             os.environ.pop("MLEVOLVE_NO_GPU", None)
@@ -123,6 +135,24 @@ def test_contract_gated_on_env_and_stage() -> None:
     assert LLM_CALLS
 
 
+def test_contract_accepts_capitalized_draft_stage() -> None:
+    assert_rejected("model = AutoModel.from_pretrained('bert-base-uncased')\n")
+    try:
+        run_review("model = AutoModel.from_pretrained('bert-base-uncased')\n", stage="Draft")
+    except code_review_agent.DraftContractViolation:
+        return
+    raise AssertionError("expected capitalized Draft stage to trigger the contract")
+
+
+def test_jigsaw_uses_deterministic_cpu_fallback() -> None:
+    code = "model = AutoModelForSequenceClassification.from_pretrained('microsoft/deberta-v3-large')\n"
+    result = run_review(code, stage="Draft", task_desc=JIGSAW_TASK_DESC)
+    assert "SGDClassifier" in result
+    assert "TfidfVectorizer" in result
+    assert "from_pretrained" not in result
+    assert not LLM_CALLS, "Jigsaw fallback should happen before spending on LLM review"
+
+
 def test_soft_instruction_added_for_no_gpu_drafts() -> None:
     run_review("model = nn.Linear(10, 2)\n")
     prompt = LLM_CALLS[-1]["system_message"]
@@ -156,6 +186,8 @@ def main() -> int:
     test_pretrained_downloads_rejected_on_no_gpu_drafts()
     test_local_paths_and_scratch_models_pass_precheck()
     test_contract_gated_on_env_and_stage()
+    test_contract_accepts_capitalized_draft_stage()
+    test_jigsaw_uses_deterministic_cpu_fallback()
     test_soft_instruction_added_for_no_gpu_drafts()
     test_violation_helper_reports_all_patterns()
     print("code review draft contract tests passed")

@@ -42,6 +42,17 @@ def model_tier_environment(variant_id: str) -> list[dict[str, str]]:
     return []
 
 
+def artifact_sync_timeout_buffer_seconds(runtime_controls: dict[str, Any] | None = None) -> int:
+    """Return post-agent Batch timeout buffer for grading and final artifact sync."""
+    runtime_controls = runtime_controls or {}
+    value = runtime_controls.get("batch_timeout_buffer_seconds", ARTIFACT_SYNC_TIMEOUT_BUFFER_SECONDS)
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        seconds = ARTIFACT_SYNC_TIMEOUT_BUFFER_SECONDS
+    return max(ARTIFACT_SYNC_TIMEOUT_BUFFER_SECONDS, seconds)
+
+
 def load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
@@ -107,67 +118,48 @@ def ai_scientist_stage_budget(max_nodes: int | None) -> dict[str, int]:
     }
 
 
-def ai_scientist_runtime_config_patch(
-    *,
+def ai_scientist_budget_environment(
     budget: dict[str, Any] | None = None,
     runtime_controls: dict[str, Any] | None = None,
-) -> str:
+) -> dict[str, str]:
+    """T3_AIS_* env consumed by scripts/worker_ais_budget_patch.py (via worker_run.sh).
+
+    The bfts config patch itself lives in scripts/worker_ais_budget_patch.py
+    (shipped in the worker patch tarball); this only computes its parameters so
+    the containerOverrides command stays short.
+    """
     budget = budget or {}
     runtime_controls = runtime_controls or {}
-    max_nodes = budget.get("max_nodes")
-    max_debug_attempts = budget.get("max_debug_attempts")
+    if not runtime_controls.get("ai_scientist_budget_patch"):
+        return {}
+
+    env: dict[str, str] = {"T3_AIS_BUDGET_PATCH": "1"}
+
     wall_time_seconds = budget.get("wall_time_seconds")
-    stage_budget = (
-        ai_scientist_stage_budget(int(max_nodes))
-        if runtime_controls.get("ai_scientist_budget_patch") and max_nodes is not None
-        else {}
+    # Optional explicit per-node exec timeout override (runtime_controls.ais_exec_timeout);
+    # the effective value is min(override, wall) clamped to [60, 3600].
+    ais_exec_timeout = runtime_controls.get("ais_exec_timeout")
+    candidates = [int(value) for value in (wall_time_seconds, ais_exec_timeout) if value is not None]
+    if candidates:
+        env["T3_AIS_EXEC_TIMEOUT"] = str(max(60, min(3600, min(candidates))))
+
+    max_nodes = budget.get("max_nodes")
+    if max_nodes is not None:
+        stage_budget = ai_scientist_stage_budget(int(max_nodes))
+        env["T3_AIS_STAGE1"] = str(stage_budget["stage1_max_iters"])
+        env["T3_AIS_STAGE2"] = str(stage_budget["stage2_max_iters"])
+        env["T3_AIS_STAGE3"] = str(stage_budget["stage3_max_iters"])
+        env["T3_AIS_STAGE4"] = str(stage_budget["stage4_max_iters"])
+        env["T3_AIS_STEPS"] = str(stage_budget["steps"])
+        # At screening budgets (>=8 nodes) keep 2 drafts so best-first selection
+        # has multiple trees and genuinely differs from linear_stage.
+        env["T3_AIS_NUM_DRAFTS"] = "2" if int(max_nodes) >= 8 else "1"
+
+    max_debug_attempts = budget.get("max_debug_attempts")
+    env["T3_AIS_DEBUG_DEPTH"] = (
+        str(max(0, min(3, int(max_debug_attempts)))) if max_debug_attempts is not None else "1"
     )
-    exec_timeout = (
-        max(60, min(3600, int(wall_time_seconds)))
-        if runtime_controls.get("ai_scientist_budget_patch") and wall_time_seconds is not None
-        else None
-    )
-    debug_depth = max(0, min(3, int(max_debug_attempts))) if max_debug_attempts is not None else 1
-    patch_parts = [
-        "from pathlib import Path;"
-        "p=Path('.context/external/AI-Scientist-v2-ablation/bfts_config.yaml');"
-        "s=p.read_text();"
-        "s=s.replace('model: anthropic.claude-3-5-sonnet-20241022-v2:0','model: gpt-4.1');"
-        "s=s.replace('generate_report: True','generate_report: False');",
-    ]
-    if exec_timeout is not None:
-        patch_parts.append(f"s=s.replace('  timeout: 3600','  timeout: {exec_timeout}');")
-    # At screening budgets (>=8 nodes) keep 2 drafts so best-first selection
-    # has multiple trees and genuinely differs from linear_stage.
-    num_drafts = 2 if max_nodes is not None and int(max_nodes) >= 8 else 1
-    if stage_budget:
-        patch_parts.extend(
-            [
-                "s=s.replace('  num_workers: 4','  num_workers: 1');",
-                "s=s.replace('    num_seeds: 3','    num_seeds: 1');",
-                f"s=s.replace('    num_drafts: 3','    num_drafts: {num_drafts}');",
-                f"s=s.replace('    max_debug_depth: 3','    max_debug_depth: {debug_depth}');",
-                "s=s.replace('    max_tokens: 12000','    max_tokens: 6000');",
-                "s=s.replace('    max_tokens: 8192','    max_tokens: 4000');",
-                f"s=s.replace('    stage1_max_iters: 20','    stage1_max_iters: {stage_budget['stage1_max_iters']}');",
-                f"s=s.replace('    stage2_max_iters: 12','    stage2_max_iters: {stage_budget['stage2_max_iters']}');",
-                f"s=s.replace('    stage3_max_iters: 12','    stage3_max_iters: {stage_budget['stage3_max_iters']}');",
-                f"s=s.replace('    stage4_max_iters: 18','    stage4_max_iters: {stage_budget['stage4_max_iters']}');",
-                f"s=s.replace('  steps: 5','  steps: {stage_budget['steps']}');",
-            ]
-        )
-    patch_parts.append(
-        "p.write_text(s);"
-        "lp=Path('.context/external/AI-Scientist-v2-ablation/launch_scientist_bfts.py');"
-        "ls=lp.read_text();"
-        "old='    aggregate_plots(base_folder=idea_dir, model=args.model_agg_plots)\\n\\n    shutil.rmtree(osp.join(idea_dir, \"experiment_results\"))';"
-        "new='    if not args.skip_writeup:\\n        aggregate_plots(base_folder=idea_dir, model=args.model_agg_plots)\\n\\n    experiment_results_copy = osp.join(idea_dir, \"experiment_results\")\\n    if os.path.exists(experiment_results_copy):\\n        shutil.rmtree(experiment_results_copy)';"
-        "ls=ls.replace(old,new);"
-        "ls=ls.replace('    keywords = [\"python\", \"torch\", \"mp\", \"bfts\", \"experiment\"]','    keywords = []');"
-        "lp.write_text(ls)"
-    )
-    patch_code = "".join(patch_parts)
-    return f"python3 -c {shlex.quote(patch_code)}; "
+    return env
 
 
 def worker_patch_command(runtime_controls: dict[str, Any] | None = None) -> str:
@@ -205,116 +197,31 @@ def worker_command(
     budget: dict[str, Any] | None = None,
     runtime_controls: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Prepare task data when missing, then dispatch the ablation manifest."""
-    sync_code = (
-        "import sys,boto3;"
-        "from pathlib import Path;"
-        "src=Path(sys.argv[1]);"
-        "dest=sys.argv[2].rstrip('/')+'/';"
-        "bucket,key=dest.removeprefix('s3://').split('/',1);"
-        "s3=boto3.client('s3');"
-        "[s3.upload_file(str(p),bucket,key+str(p.relative_to(src))) for p in src.rglob('*') if p.is_file()]"
-    )
-    ai_experiment_copy_code = (
-        "import shutil,sys;"
-        "from pathlib import Path;"
-        "src=Path(sys.argv[1]);"
-        "dest=Path(sys.argv[2]);"
-        "cutoff=float(sys.argv[3])-5;"
-        "matched=[];"
-        "\nif src.is_dir():\n"
-        "    for p in src.iterdir():\n"
-        "        if p.is_dir() and p.stat().st_mtime >= cutoff:\n"
-        "            target=dest/p.name\n"
-        "            shutil.copytree(p,target,dirs_exist_ok=True)\n"
-        "            matched.append(str(target))\n"
-        "print('\\n'.join(matched))"
-    )
-    ai_valid_grade_code = (
-        "import json,sys;"
-        "from pathlib import Path;"
-        "p=Path(sys.argv[1]);"
-        "ok=False;"
-        "\nif p.is_file():\n"
-        "    r=json.loads(p.read_text())\n"
-        "    report=r.get('report') or {}\n"
-        "    ok=bool(report.get('valid_submission'))\n"
-        "print('1' if ok else '0')"
+    """Short bootstrap command: export parameters, download/extract the worker
+    patch, then hand off to scripts/worker_run.sh (shipped in the patch).
+
+    All run logic (mlebench prepare, checkpoint sync, AIS budget patch, grading,
+    exit-code semantics) lives in worker_run.sh so the AWS Batch
+    containerOverrides JSON stays below the 8192-character limit.
+    """
+    exports: dict[str, str] = {
+        "SYSTEM": system,
+        "TASK_ID": task_id,
+        "MANIFEST_REF": manifest_ref,
+        "PHASE": phase,
+        "RUN_ID": run_id,
+        "OUTPUT_DIR": output_dir,
+    }
+    if system == "ai_scientist_v2":
+        exports.update(ai_scientist_budget_environment(budget, runtime_controls))
+    export_clause = "export " + " ".join(
+        f"{name}={shlex.quote(str(value))}" for name, value in exports.items()
     )
     script = (
         "set -euo pipefail; "
-        f"SYSTEM={shlex.quote(system)}; "
-        f"TASK_ID={shlex.quote(task_id)}; "
-        f"MANIFEST_REF={shlex.quote(manifest_ref)}; "
-        f"PHASE={shlex.quote(phase)}; "
-        f"RUN_ID={shlex.quote(run_id)}; "
-        f"OUTPUT_DIR={shlex.quote(output_dir)}; "
-        "RUN_START_TS=$(date +%s); "
-        # Compute the artifact destination up-front so periodic checkpoints can
-        # sync partial artifacts even if the job is killed at the wall timeout.
-        'ARTIFACT_DEST=""; '
-        'if [ -n "${ABLATION_ARTIFACT_ROOT:-}" ]; then '
-        'ARTIFACT_DEST="${ABLATION_ARTIFACT_ROOT%/}/${PHASE}/${RUN_ID}/"; '
-        "fi; "
-        'test -n "${MLEBENCH_DATASET_DIR:-}" || '
-        '{ echo "MLEBENCH_DATASET_DIR is required" >&2; exit 2; }; '
-        'DESCRIPTION_PATH="${MLEBENCH_DATASET_DIR}/${TASK_ID}/prepared/public/description.md"; '
-        'if [ ! -f "$DESCRIPTION_PATH" ]; then '
-        'mlebench prepare -c "$TASK_ID" --data-dir "$MLEBENCH_DATASET_DIR"; '
-        "fi; "
+        f"{export_clause}; "
         + worker_patch_command(runtime_controls)
-        + (
-            ai_scientist_runtime_config_patch(
-                budget=budget,
-                runtime_controls=runtime_controls,
-            )
-            if system == "ai_scientist_v2"
-            else ""
-        )
-        + "set +e; "
-        # Background checkpoint loop: periodically sync partial artifacts so a
-        # wall-timeout kill cannot lose everything before the final sync.
-        'CHECKPOINT_PID=""; '
-        'if [ -n "$ARTIFACT_DEST" ]; then '
-        "( while true; do sleep 300; "
-        f"python3 -c {shlex.quote(sync_code)} "
-        '"$OUTPUT_DIR" "$ARTIFACT_DEST" >/dev/null 2>&1 || true; done ) & '
-        "CHECKPOINT_PID=$!; "
-        "fi; "
-        'python3 scripts/run_ablation_manifest.py --manifest "$MANIFEST_REF"; '
-        "RUN_STATUS=$?; "
-        'if [ "$SYSTEM" = "ai_scientist_v2" ]; then '
-        'AI_EXPERIMENTS_DIR=".context/external/AI-Scientist-v2-ablation/experiments"; '
-        'AI_EXPERIMENTS_OUT="$OUTPUT_DIR/ai_scientist_experiments"; '
-        f"python3 -c {shlex.quote(ai_experiment_copy_code)} "
-        '"$AI_EXPERIMENTS_DIR" "$AI_EXPERIMENTS_OUT" "$RUN_START_TS"; '
-        'AI_WORKSPACES_DIR=".context/external/AI-Scientist-v2-ablation/workspaces"; '
-        'AI_WORKSPACES_OUT="$OUTPUT_DIR/ai_scientist_workspaces"; '
-        f"python3 -c {shlex.quote(ai_experiment_copy_code)} "
-        '"$AI_WORKSPACES_DIR" "$AI_WORKSPACES_OUT" "$RUN_START_TS"; '
-        'python3 scripts/recover_ai_scientist_submission.py --output-dir "$OUTPUT_DIR" '
-        '--task-id "$TASK_ID" --data-dir "$MLEBENCH_DATASET_DIR" --run-id "$RUN_ID" '
-        '--timeout-seconds 900 --allow-fallback || true; '
-        "fi; "
-        'if [ -d "$OUTPUT_DIR" ]; then '
-        'python3 scripts/grade_ablation_submissions.py --output-dir "$OUTPUT_DIR" '
-        '--task-id "$TASK_ID" --system "$SYSTEM" --run-id "$RUN_ID" '
-        '--data-dir "$MLEBENCH_DATASET_DIR" || true; '
-        "fi; "
-        'if [ "$SYSTEM" = "ai_scientist_v2" ] && [ -f "$OUTPUT_DIR/grader/grade_report.json" ]; then '
-        f"VALID_GRADE=$(python3 -c {shlex.quote(ai_valid_grade_code)} "
-        '"$OUTPUT_DIR/grader/grade_report.json"); '
-        'if [ "$VALID_GRADE" = "1" ]; then RUN_STATUS=0; fi; '
-        "fi; "
-        'if [ -n "$CHECKPOINT_PID" ]; then kill "$CHECKPOINT_PID" >/dev/null 2>&1 || true; fi; '
-        "SYNC_STATUS=0; "
-        'if [ -n "$ARTIFACT_DEST" ] && [ -d "$OUTPUT_DIR" ]; then '
-        f"python3 -c {shlex.quote(sync_code)} "
-        '"$OUTPUT_DIR" "$ARTIFACT_DEST"; '
-        "SYNC_STATUS=$?; "
-        "fi; "
-        'if [ "$RUN_STATUS" -ne 0 ]; then exit "$RUN_STATUS"; fi; '
-        'exit "$SYNC_STATUS"'
+        + "bash scripts/worker_run.sh"
     )
     return ["bash", "-lc", script]
 
@@ -396,7 +303,7 @@ def build_job_spec(
         },
         "timeout": {
             "attemptDurationSeconds": int(manifest.get("budget", {}).get("wall_time_seconds", 14400))
-            + ARTIFACT_SYNC_TIMEOUT_BUFFER_SECONDS
+            + artifact_sync_timeout_buffer_seconds(manifest.get("runtime_controls") or {})
         },
     }
     if include_tags:
@@ -407,6 +314,16 @@ def build_job_spec(
             "variant": manifest["variant_id"],
             "task": manifest["task_id"],
         }
+
+    # AWS Batch rejects jobs whose container overrides exceed 8192 characters
+    # ("Container Overrides length must be at most 8192"); fail the build with
+    # headroom instead of failing at submit/runtime.
+    overrides_length = len(json.dumps(spec["containerOverrides"]))
+    if overrides_length > 8000:
+        raise ValueError(
+            f"containerOverrides JSON is {overrides_length} chars (> 8000) for "
+            f"run_id={manifest['run_id']}; AWS Batch rejects overrides above 8192 chars"
+        )
     return spec
 
 

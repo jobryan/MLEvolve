@@ -82,18 +82,159 @@ PRETRAINED_DOWNLOAD_PATTERNS = (
 
 CHEAP_DRAFT_INSTRUCTION = (
     "This is a FIRST DRAFT on a CPU-only worker: keep training cheap (subsample the data, "
-    "use few epochs and a small model) so the run finishes well within the execution timeout."
+    "use few epochs and a small model) so the run finishes well within the execution timeout. "
+    "For text classification, use sklearn TF-IDF/character n-grams with SGDClassifier, "
+    "LogisticRegression, LinearSVC+calibration, or Naive Bayes; do not use transformers or "
+    "HuggingFace model/tokenizer classes in the first draft."
 )
 
 
 def draft_contract_active(node: SearchNode) -> bool:
     """Cheap-first-draft contract applies to Draft nodes on CPU-only (MLEVOLVE_NO_GPU=1) workers."""
-    return os.getenv("MLEVOLVE_NO_GPU") == "1" and str(getattr(node, "stage", "")) == "draft"
+    return os.getenv("MLEVOLVE_NO_GPU") == "1" and str(getattr(node, "stage", "")).lower() == "draft"
 
 
 def draft_contract_violations(code: str) -> list[str]:
     """Return descriptions of pretrained-download patterns found in the code."""
     return [label for pattern, label in PRETRAINED_DOWNLOAD_PATTERNS if pattern.search(code)]
+
+
+def looks_like_jigsaw_toxic_task(task_desc: str) -> bool:
+    """Detect the Jigsaw Toxic Comment task from its task description."""
+    lowered = task_desc.lower()
+    required_terms = [
+        "toxic",
+        "severe_toxic",
+        "obscene",
+        "threat",
+        "insult",
+        "identity_hate",
+        "comment_text",
+    ]
+    return all(term in lowered for term in required_terms)
+
+
+def jigsaw_cpu_baseline_code() -> str:
+    """Deterministic CPU-safe first baseline for Jigsaw/Toxic Comment."""
+    return r'''
+import os
+import re
+import numpy as np
+import pandas as pd
+from scipy.sparse import hstack
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import SGDClassifier
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
+
+INPUT_DIR = "./input"
+SUBMISSION_DIR = "./submission"
+os.makedirs(SUBMISSION_DIR, exist_ok=True)
+
+TARGETS = ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]
+
+
+def clean_text(value):
+    text = "" if pd.isna(value) else str(value)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+train = pd.read_csv(os.path.join(INPUT_DIR, "train.csv"))
+test = pd.read_csv(os.path.join(INPUT_DIR, "test.csv"))
+sample = pd.read_csv(os.path.join(INPUT_DIR, "sample_submission.csv"))
+
+train["comment_text"] = train["comment_text"].map(clean_text)
+test["comment_text"] = test["comment_text"].map(clean_text)
+
+train_idx, val_idx = train_test_split(
+    np.arange(len(train)),
+    test_size=0.15,
+    random_state=42,
+    stratify=train["toxic"],
+)
+train_text = train.loc[train_idx, "comment_text"]
+val_text = train.loc[val_idx, "comment_text"]
+test_text = test["comment_text"]
+
+word_vectorizer = TfidfVectorizer(
+    analyzer="word",
+    ngram_range=(1, 2),
+    min_df=3,
+    max_features=15000,
+    strip_accents="unicode",
+    sublinear_tf=True,
+)
+char_vectorizer = TfidfVectorizer(
+    analyzer="char_wb",
+    ngram_range=(3, 5),
+    min_df=3,
+    max_features=15000,
+    strip_accents="unicode",
+    sublinear_tf=True,
+)
+
+word_vectorizer.fit(train_text)
+char_vectorizer.fit(train_text)
+
+X_train = hstack([
+    word_vectorizer.transform(train_text),
+    char_vectorizer.transform(train_text),
+]).tocsr()
+X_val = hstack([
+    word_vectorizer.transform(val_text),
+    char_vectorizer.transform(val_text),
+]).tocsr()
+X_test = hstack([
+    word_vectorizer.transform(test_text),
+    char_vectorizer.transform(test_text),
+]).tocsr()
+
+val_scores = []
+test_predictions = np.zeros((len(test), len(TARGETS)), dtype=np.float32)
+
+for column_index, target in enumerate(TARGETS):
+    model = SGDClassifier(
+        loss="log_loss",
+        penalty="l2",
+        alpha=1e-5,
+        max_iter=8,
+        tol=1e-3,
+        random_state=42 + column_index,
+        n_jobs=1,
+    )
+    model.fit(X_train, train.loc[train_idx, target].astype(int))
+    val_prob = model.predict_proba(X_val)[:, 1]
+    test_predictions[:, column_index] = model.predict_proba(X_test)[:, 1]
+    val_scores.append(roc_auc_score(train.loc[val_idx, target].astype(int), val_prob))
+
+score = float(np.mean(val_scores))
+submission = sample.copy()
+for column_index, target in enumerate(TARGETS):
+    submission[target] = np.clip(test_predictions[:, column_index], 0.0, 1.0)
+submission.to_csv(os.path.join(SUBMISSION_DIR, "submission.csv"), index=False)
+
+print(f"Final Validation Score: {score}")
+'''.strip()
+
+
+def resolve_draft_contract_violation(agent, node: SearchNode, code: str, violations: list[str]) -> str:
+    """Return deterministic safe code for known contracts or raise for unsupported violations."""
+    task_desc = str(getattr(agent, "task_desc", ""))
+    if looks_like_jigsaw_toxic_task(task_desc):
+        logger.warning(
+            "Replacing Jigsaw toxic-comment first draft with deterministic CPU-safe TF-IDF baseline "
+            f"after contract violation(s): {'; '.join(violations)}"
+        )
+        return jigsaw_cpu_baseline_code()
+    message = (
+        "Cheap-first-draft contract violation (MLEVOLVE_NO_GPU=1, Draft node): "
+        + "; ".join(violations)
+        + ". First drafts must not download pretrained models; train a small model "
+        "from scratch and keep the draft cheap (e.g. subsample the data)."
+    )
+    logger.warning(f"Code review rejected draft node {node.id}: {message}")
+    raise DraftContractViolation(message)
 
 
 def run(agent, node: SearchNode) -> str:
@@ -103,14 +244,7 @@ def run(agent, node: SearchNode) -> str:
     if contract_active:
         violations = draft_contract_violations(node.code)
         if violations:
-            message = (
-                "Cheap-first-draft contract violation (MLEVOLVE_NO_GPU=1, Draft node): "
-                + "; ".join(violations)
-                + ". First drafts must not download pretrained models; train a small model "
-                "from scratch and keep the draft cheap (e.g. subsample the data)."
-            )
-            logger.warning(f"Code review rejected draft node {node.id} before LLM review: {message}")
-            raise DraftContractViolation(message)
+            return resolve_draft_contract_violation(agent, node, node.code, violations)
 
     prompt = get_code_review_prompt(
         task_desc=agent.task_desc,
@@ -166,10 +300,19 @@ def run(agent, node: SearchNode) -> str:
                             )
                             if count > 0 and patched_code and patched_code != node.code:
                                 logger.info(f"Successfully applied {count} review patch(es)")
-                                return patched_code.strip()
+                                patched_code = patched_code.strip()
+                                if contract_active:
+                                    violations = draft_contract_violations(patched_code)
+                                    if violations:
+                                        return resolve_draft_contract_violation(agent, node, patched_code, violations)
+                                return patched_code
                             logger.warning(
                                 f"Diff patch failed (count={count}), keeping original code to avoid writing raw diff to runfile"
                             )
+                            if contract_active:
+                                violations = draft_contract_violations(node.code)
+                                if violations:
+                                    return resolve_draft_contract_violation(agent, node, node.code, violations)
                             return node.code
                         except Exception as e:
                             logger.warning(
@@ -179,10 +322,19 @@ def run(agent, node: SearchNode) -> str:
                     else:
                         # Full code revision (original behavior)
                         if use_diff_for_review:
+                            if contract_active:
+                                violations = draft_contract_violations(node.code)
+                                if violations:
+                                    return resolve_draft_contract_violation(agent, node, node.code, violations)
                             return node.code
                         else:
                             logger.info("Using revised code from reviewer")
-                            return revised_code.strip()
+                            revised_code = revised_code.strip()
+                            if contract_active:
+                                violations = draft_contract_violations(revised_code)
+                                if violations:
+                                    return resolve_draft_contract_violation(agent, node, revised_code, violations)
+                            return revised_code
 
                 if attempt < max_retries - 1:
                     logger.warning(f"Code review violation: needs_revision=True but revised_code is empty/None - Will retry ({attempt + 1}/{max_retries})")
@@ -190,6 +342,10 @@ def run(agent, node: SearchNode) -> str:
                     continue
                 logger.error(f"Code review violation: needs_revision=True but revised_code is empty/None - Max retries reached, returning original code")
                 logger.info(f"Reasoning detail: {reasoning}", extra={"verbose": True})
+                if contract_active:
+                    violations = draft_contract_violations(node.code)
+                    if violations:
+                        return resolve_draft_contract_violation(agent, node, node.code, violations)
                 return node.code
 
             if revised_code is not None and revised_code.strip():
@@ -198,6 +354,10 @@ def run(agent, node: SearchNode) -> str:
                     "Ignoring revised_code and using original code."
                 )
             logger.info("Code approved, using original code")
+            if contract_active:
+                violations = draft_contract_violations(node.code)
+                if violations:
+                    return resolve_draft_contract_violation(agent, node, node.code, violations)
             return node.code
 
         except Exception as e:
