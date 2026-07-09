@@ -91,9 +91,14 @@ def build_command(manifest: Dict[str, Any], manifest_uri: str, artifact_root: st
             f"python3 -c {shell_quote(VERIFY_STORE_PY)} .context/e2_store {rc.get('store_snapshot') or 'SKIP'}",
         ]
 
+    # In-container watchdog: kill the agent run 900s before the Batch attempt
+    # timeout so grading + artifact sync always execute — a Batch-level kill
+    # destroys artifacts (journals included), turning timeouts into data loss.
+    run_timeout = manifest["runtime_controls"]["batch_attempt_timeout_seconds"] - 900
     parts += [
         "set +e",
-        'python3 scripts/run_ablation_manifest.py --manifest "$MANIFEST_REF"; RUN_STATUS=$?',
+        f'timeout -k 60 {run_timeout} python3 scripts/run_ablation_manifest.py --manifest "$MANIFEST_REF"; RUN_STATUS=$?',
+        'if [ "$RUN_STATUS" -eq 124 ]; then echo "agent run hit in-container watchdog (${RUN_STATUS})"; fi',
         'if [ -d "$OUTPUT_DIR" ]; then python3 scripts/grade_ablation_submissions.py --output-dir "$OUTPUT_DIR" --task-id "$TASK_ID" --system "$SYSTEM" --run-id "$RUN_ID" --data-dir "$MLEBENCH_DATASET_DIR" || true; fi',
         "SYNC_STATUS=0",
         f'ARTIFACT_DEST="{artifact_root.rstrip("/")}/${{PHASE}}/${{RUN_ID}}/"',
