@@ -165,6 +165,33 @@ def test_model_tier_placebo_blocks() -> None:
     summary = _run_model_tier_case(routing_job_spec("all_strong", None))
     assert "model_routing_tier_missing_or_placebo" in summary["blockers"]
 
+    # Cheap tiers routed to the anchor are placebos of the default too.
+    summary = _run_model_tier_case(
+        routing_job_spec(
+            "all_cheap",
+            [
+                {"name": "MLEVOLVE_CHEAP_CODE_MODEL", "value": "gpt-4.1"},
+                {"name": "MLEVOLVE_CHEAP_FEEDBACK_MODEL", "value": "gpt-4.1"},
+            ],
+        )
+    )
+    assert "model_routing_tier_missing_or_placebo" in summary["blockers"]
+
+    summary = _run_model_tier_case(
+        routing_job_spec(
+            "cheap_code_strong_feedback",
+            [
+                {"name": "MLEVOLVE_CHEAP_CODE_MODEL", "value": "gpt-4.1"},
+                {"name": "MLEVOLVE_STRONG_FEEDBACK_MODEL", "value": "gpt-5.5"},
+            ],
+        )
+    )
+    assert "model_routing_tier_missing_or_placebo" in summary["blockers"]
+
+    # Missing tier env on the new arms must also block.
+    summary = _run_model_tier_case(routing_job_spec("all_cheap", None))
+    assert "model_routing_tier_missing_or_placebo" in summary["blockers"]
+
 
 def test_model_tier_real_tier_passes() -> None:
     summary = _run_model_tier_case(
@@ -178,6 +205,30 @@ def test_model_tier_real_tier_passes() -> None:
     )
     assert "model_routing_tier_missing_or_placebo" not in summary["blockers"]
     assert summary["model_tiers"]["routing_job_count"] == 1
+    assert summary["ready"] is True
+
+    summary = _run_model_tier_case(
+        routing_job_spec(
+            "cheap_code_strong_feedback",
+            [
+                {"name": "MLEVOLVE_CHEAP_CODE_MODEL", "value": "gpt-4.1-mini"},
+                {"name": "MLEVOLVE_STRONG_FEEDBACK_MODEL", "value": "gpt-5.5"},
+            ],
+        )
+    )
+    assert "model_routing_tier_missing_or_placebo" not in summary["blockers"]
+    assert summary["ready"] is True
+
+    summary = _run_model_tier_case(
+        routing_job_spec(
+            "all_cheap",
+            [
+                {"name": "MLEVOLVE_CHEAP_CODE_MODEL", "value": "gpt-4.1-mini"},
+                {"name": "MLEVOLVE_CHEAP_FEEDBACK_MODEL", "value": "gpt-4.1-mini"},
+            ],
+        )
+    )
+    assert "model_routing_tier_missing_or_placebo" not in summary["blockers"]
     assert summary["ready"] is True
 
 

@@ -39,6 +39,16 @@ def model_tier_environment(variant_id: str) -> list[dict[str, str]]:
             {"name": "MLEVOLVE_STRONG_CODE_MODEL", "value": strong},
             {"name": "MLEVOLVE_CHEAP_FEEDBACK_MODEL", "value": cheap},
         ]
+    if variant_id == "cheap_code_strong_feedback":
+        return [
+            {"name": "MLEVOLVE_CHEAP_CODE_MODEL", "value": cheap},
+            {"name": "MLEVOLVE_STRONG_FEEDBACK_MODEL", "value": strong},
+        ]
+    if variant_id == "all_cheap":
+        return [
+            {"name": "MLEVOLVE_CHEAP_CODE_MODEL", "value": cheap},
+            {"name": "MLEVOLVE_CHEAP_FEEDBACK_MODEL", "value": cheap},
+        ]
     return []
 
 

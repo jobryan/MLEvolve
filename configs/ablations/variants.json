@@ -250,6 +250,22 @@
       "enabled_phases": ["screening", "main"]
     },
     {
+      "variant_id": "cheap_code_strong_feedback",
+      "system": "mlevolve",
+      "component_class": "model_routing",
+      "summary": "Use a cheaper model for code generation and the strong model for feedback/review roles.",
+      "config_path": "configs/ablations/mlevolve/cheap_code_strong_feedback.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
+      "variant_id": "all_cheap",
+      "system": "mlevolve",
+      "component_class": "model_routing",
+      "summary": "Route code and feedback roles to the cheap model profile.",
+      "config_path": "configs/ablations/mlevolve/all_cheap.json",
+      "enabled_phases": ["screening", "main"]
+    },
+    {
       "variant_id": "stage_as_operator_default",
       "system": "ai_scientist_v2",
       "component_class": "baseline",

@@ -34,6 +34,8 @@ RECOMMENDED_VARIANTS = {
     "novelty_lambda_040",
     "all_strong",
     "strong_code_cheap_feedback",
+    "cheap_code_strong_feedback",
+    "all_cheap",
 }
 
 VALID_PHASES = {"smoke", "screening", "main", "confirmation", "native_finalist"}
@@ -76,7 +78,13 @@ ENUMS: dict[str, set[Any]] = {
     "ablation.global_memory_filter": {"all", "none", "success_only", "failure_only"},
     "ablation.diversity_mode": {"default", "none", "high", "novelty"},
     "ablation.operator_set": {"full", "draft_debug_improve", "no_fusion_evolution", "draft_only"},
-    "ablation.model_profile": {"default", "all_strong", "strong_code_cheap_feedback"},
+    "ablation.model_profile": {
+        "default",
+        "all_strong",
+        "strong_code_cheap_feedback",
+        "cheap_code_strong_feedback",
+        "all_cheap",
+    },
 }
 
 

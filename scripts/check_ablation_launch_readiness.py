@@ -29,6 +29,8 @@ ANCHOR_MODEL = "gpt-4.1"
 MODEL_ROUTING_TIER_VARS = {
     "all_strong": ["MLEVOLVE_STRONG_CODE_MODEL", "MLEVOLVE_STRONG_FEEDBACK_MODEL"],
     "strong_code_cheap_feedback": ["MLEVOLVE_STRONG_CODE_MODEL", "MLEVOLVE_CHEAP_FEEDBACK_MODEL"],
+    "cheap_code_strong_feedback": ["MLEVOLVE_CHEAP_CODE_MODEL", "MLEVOLVE_STRONG_FEEDBACK_MODEL"],
+    "all_cheap": ["MLEVOLVE_CHEAP_CODE_MODEL", "MLEVOLVE_CHEAP_FEEDBACK_MODEL"],
 }
 
 
@@ -72,7 +74,10 @@ def summarize_model_tiers(paths: list[Path], openai_api_key: str | None) -> dict
                     problems.append(f"{spec.get('jobName')}: {var} is unset")
                     continue
                 tier_models.add(value)
-                if var.startswith("MLEVOLVE_STRONG") and value == ANCHOR_MODEL:
+                # Placebo guard: every tier var must route away from the anchor.
+                # Strong vars equal to the anchor replicate the default; cheap
+                # vars equal to the anchor make the "cheap" tier a placebo too.
+                if value == ANCHOR_MODEL:
                     problems.append(
                         f"{spec.get('jobName')}: {var}={value} equals the anchor model"
                     )

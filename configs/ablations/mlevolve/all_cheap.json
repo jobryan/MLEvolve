@@ -1,0 +1,16 @@
+{
+  "variant_id": "all_cheap",
+  "system": "mlevolve",
+  "component_class": "model_routing",
+  "summary": "Route code and feedback roles to the cheap model profile.",
+  "research_question": "What is the lower quality anchor when all major roles use the cheap model profile?",
+  "inherits": "config/config.yaml",
+  "enabled_phases": ["screening", "main"],
+  "overrides": {
+    "ablation.enabled": true,
+    "ablation.variant_id": "all_cheap",
+    "ablation.model_profile": "all_cheap",
+    "agent.code.model": "${oc.env:MLEVOLVE_CHEAP_CODE_MODEL,gpt-4.1-mini}",
+    "agent.feedback.model": "${oc.env:MLEVOLVE_CHEAP_FEEDBACK_MODEL,gpt-4.1-mini}"
+  }
+}

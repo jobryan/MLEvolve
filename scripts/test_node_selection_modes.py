@@ -165,6 +165,18 @@ def test_progressive_mcts(ns) -> None:
     assert agent.last_selection_rationale["reason"] == "decayed_uct_from_root"
 
 
+def test_vanilla_mcts_exhausted_root_returns_sentinel(ns) -> None:
+    root = FakeNode("root", reached_limit=True, stage="root")
+    locked = root.add_child(FakeNode("locked", reached_limit=True, uct=2.0, stage="draft"))
+    locked.lock = True
+    agent = FakeAgent("vanilla_mcts", root, [locked])
+
+    selected = ns.select_with_soft_switch(agent)
+
+    assert_selected("vanilla_mcts_exhausted_root", selected, root)
+    assert agent.last_selection_rationale["policy"] == "vanilla_mcts"
+
+
 def test_default_mcgs_sets_rationale(ns) -> None:
     root = FakeNode("root", reached_limit=False, stage="root")
     agent = FakeAgent("mcgs", root, [])
@@ -200,6 +212,7 @@ def main() -> int:
     test_greedy_tree(ns)
     test_vanilla_mcts(ns)
     test_progressive_mcts(ns)
+    test_vanilla_mcts_exhausted_root_returns_sentinel(ns)
     test_default_mcgs_sets_rationale(ns)
     test_novelty_lambda_changes_greedy_score(ns)
     print("node selection mode tests passed")

@@ -386,8 +386,25 @@ def test_model_tier_environment_only_on_routing_variants() -> None:
     }
     assert mixed["MLEVOLVE_STRONG_CODE_MODEL"] == "gpt-5.5"
     assert mixed["MLEVOLVE_CHEAP_FEEDBACK_MODEL"] == "gpt-4.1-mini"
-    # The strong tier must differ from the gpt-4.1 anchor or the variant is a placebo.
+    inverse = {
+        item["name"]: item["value"]
+        for item in model_tier_environment("cheap_code_strong_feedback")
+    }
+    assert inverse == {
+        "MLEVOLVE_CHEAP_CODE_MODEL": "gpt-4.1-mini",
+        "MLEVOLVE_STRONG_FEEDBACK_MODEL": "gpt-5.5",
+    }
+    all_cheap = {
+        item["name"]: item["value"] for item in model_tier_environment("all_cheap")
+    }
+    assert all_cheap == {
+        "MLEVOLVE_CHEAP_CODE_MODEL": "gpt-4.1-mini",
+        "MLEVOLVE_CHEAP_FEEDBACK_MODEL": "gpt-4.1-mini",
+    }
+    # No tier may sit on the gpt-4.1 anchor or the variant is a placebo.
     assert all_strong["MLEVOLVE_STRONG_CODE_MODEL"] != "gpt-4.1"
+    assert all_cheap["MLEVOLVE_CHEAP_CODE_MODEL"] != "gpt-4.1"
+    assert inverse["MLEVOLVE_CHEAP_CODE_MODEL"] != "gpt-4.1"
 
 
 def test_ai_scientist_stage_budget_prioritizes_initial_implementations() -> None:

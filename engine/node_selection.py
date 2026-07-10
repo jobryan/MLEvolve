@@ -232,18 +232,21 @@ def _compute_exploration_constant(agent):
 
 def select(agent, node: SearchNode):
     """UCT selection: recurse from node, return node to expand (root lock for drafts)."""
-    def _best_child(n: SearchNode) -> SearchNode:
+    def _best_child(n: SearchNode) -> SearchNode | None:
         C = _compute_exploration_constant(agent)
         if agent.is_root(n):
             filtered_children = [child for child in n.children if not child.lock]
+            if not filtered_children:
+                return None
             selected_node = n
-            if len(filtered_children) > 0:
-                selected_node = max(filtered_children,
-                                    key=lambda child: child.uct_value(exploration_constant=C))
+            selected_node = max(filtered_children,
+                                key=lambda child: child.uct_value(exploration_constant=C))
             if selected_node.stage in ["draft", "fusion_draft"]:
                 selected_node.lock = True
             return selected_node
         else:
+            if not n.children:
+                return None
             return max(n.children, key=lambda child: child.uct_value(exploration_constant=C))
 
     while node and not node.is_terminal:
@@ -265,7 +268,14 @@ def select(agent, node: SearchNode):
             ):
                 logger.info(f"Root node {node.id} is fully expanded for regular drafts, aggregation conditions met (including probability), returning root")
                 return node
-            node = _best_child(node)
+            next_node = _best_child(node)
+            if next_node is None or next_node is node:
+                logger.info(
+                    f"[select] → node {node.id} (method=exhausted_sentinel, "
+                    "reason=no_unlocked_or_expandable_child)"
+                )
+                return node
+            node = next_node
     logger.info(f"[select] → node {node.id} (method=uct)")
     return node
 
