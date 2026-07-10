@@ -86,6 +86,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--base-tarball", required=True, type=Path)
     parser.add_argument("--expected-base-sha256", default=V3_SHA256)
     parser.add_argument("--commit", default="HEAD", help="Repo commit to overlay (default HEAD)")
+    parser.add_argument("--overlay-dir", type=Path, action="append", default=[],
+                        help="Extra directory tree(s) copied over the patch root after the repo overlay "
+                             "(e.g. resolved mle-bench leaderboard CSVs that live outside the repo)")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
 
@@ -105,6 +108,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         work.mkdir()
         safe_extract(args.base_tarball, work)
         overlaid = overlay_repo(work, commit_hash)
+        extra = 0
+        for odir in args.overlay_dir:
+            for p in sorted(odir.rglob("*")):
+                if p.is_file():
+                    target = work / p.relative_to(odir)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(p.read_bytes())
+                    extra += 1
+        if extra:
+            print(f"extra overlay files: {extra}")
         sha = repack(work, args.output)
 
     print(f"base:    {args.base_tarball} (sha256 {base_sha[:16]}… verified)")
