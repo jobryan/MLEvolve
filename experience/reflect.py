@@ -116,11 +116,14 @@ Return JSON: {{"lessons": [{{"text": ..., "scope_tags": [...], "confidence": "hi
 
 
 def call_llm(prompt: str, model: str, base_url: str, api_key: str, temp: float) -> List[Dict[str, Any]]:
-    from llm import generate  # repo backend; requires repo deps installed
+    try:
+        from llm import generate  # repo backend; requires repo deps installed
 
-    stage = SimpleNamespace(model=model, temp=temp, base_url=base_url, api_key=api_key)
-    cfg = SimpleNamespace(agent=SimpleNamespace(code=stage, feedback=stage))
-    response = generate(prompt=prompt, cfg=cfg, temperature=temp, json_schema=LESSON_SCHEMA)
+        stage = SimpleNamespace(model=model, temp=temp, base_url=base_url, api_key=api_key)
+        cfg = SimpleNamespace(agent=SimpleNamespace(code=stage, feedback=stage))
+        response = generate(prompt=prompt, cfg=cfg, temperature=temp, json_schema=LESSON_SCHEMA)
+    except ImportError:
+        response = _openai_direct(prompt, model, base_url, api_key, temp)
 
     text = response if isinstance(response, str) else json.dumps(response)
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
@@ -129,6 +132,26 @@ def call_llm(prompt: str, model: str, base_url: str, api_key: str, temp: float) 
     if not isinstance(lessons, list):
         raise ValueError(f"unexpected lessons payload: {type(lessons)}")
     return lessons
+
+
+def _openai_direct(prompt: str, model: str, base_url: str, api_key: str, temp: float) -> str:
+    """stdlib-only OpenAI chat-completions call (repo LLM deps not installed)."""
+    import urllib.request
+
+    url = (base_url.rstrip("/") if base_url else "https://api.openai.com/v1") + "/chat/completions"
+    payload = {
+        "model": model,
+        "temperature": temp,
+        "response_format": {"type": "json_object"},
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode(),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        body = json.load(resp)
+    return body["choices"][0]["message"]["content"]
 
 
 def main(argv: Optional[List[str]] = None) -> int:
