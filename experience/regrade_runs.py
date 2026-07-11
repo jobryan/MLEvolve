@@ -28,7 +28,11 @@ def sh(cmd, **kw):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task-id", required=True)
-    parser.add_argument("--run-ids", required=True)
+    parser.add_argument("--run-ids", default="",
+                        help="Comma-separated run ids (submission keys discovered via ListObjects)")
+    parser.add_argument("--run-specs", default="",
+                        help="Comma-separated rid=submission_key pairs (no ListObjects needed — "
+                             "the worker role lacks s3:ListBucket)")
     parser.add_argument("--artifact-root", required=True)
     parser.add_argument("--phase", required=True)
     parser.add_argument("--data-dir", default=os.environ.get("MLEBENCH_DATASET_DIR", ""))
@@ -47,19 +51,27 @@ def main(argv=None):
         if r.returncode != 0:
             raise SystemExit(f"prepare failed: {r.stderr[-400:]}")
 
+    specs = []
+    if args.run_specs:
+        for pair in args.run_specs.split(","):
+            rid, _, key = pair.strip().partition("=")
+            specs.append((rid, key or None))
+    else:
+        for rid in args.run_ids.split(","):
+            specs.append((rid.strip(), None))
+
     results = {}
-    for rid in args.run_ids.split(","):
-        rid = rid.strip()
+    for rid, sub_key in specs:
         prefix = f"{root_key}/{args.phase}/{rid}/"
-        sub_key = None
-        paginator = s3.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-            for obj in page.get("Contents", []):
-                if obj["Key"].endswith("best_submission/submission.csv"):
-                    sub_key = obj["Key"]
+        if sub_key is None:
+            paginator = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    if obj["Key"].endswith("best_submission/submission.csv"):
+                        sub_key = obj["Key"]
+                        break
+                if sub_key:
                     break
-            if sub_key:
-                break
         if not sub_key:
             results[rid] = "no-submission-synced"
             continue
