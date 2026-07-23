@@ -118,6 +118,7 @@ class AgentSearch:
                 self.experience_store = ExperienceStore(
                     store_dir=exp_cfg.store_dir,
                     current_task_id=task_id,
+                    current_task_domain=getattr(exp_cfg, "task_domain", "") or "",
                     embedding_model_path=self.acfg.memory_embedding_model_path,
                     embedding_device=self.acfg.memory_embedding_device,
                     excluded_task_ids=list(exp_cfg.excluded_task_ids or []),

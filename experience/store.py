@@ -86,6 +86,7 @@ class ExperienceStore:
         self,
         store_dir: str,
         current_task_id: str,
+        current_task_domain: str = "",
         embedding_model_path: str = "",
         embedding_device: str = "cpu",
         excluded_task_ids: Optional[List[str]] = None,
@@ -102,6 +103,7 @@ class ExperienceStore:
         self.store_dir = Path(store_dir)
         self.records_file = self.store_dir / RECORDS_FILENAME
         self.current_task_id = (current_task_id or "").strip().lower()
+        self.current_task_domain = (current_task_domain or "").strip()
         self.excluded_task_ids = {t.strip().lower() for t in (excluded_task_ids or []) if t}
         self.injection_log_path = Path(injection_log_path) if injection_log_path else None
         self.top_k = top_k
@@ -128,10 +130,11 @@ class ExperienceStore:
             load_entries(self.store_dir / SOLUTIONS_FILENAME, SolutionEntry) if use_solutions else []
         )
 
-        self.retriever = self._build_episodic_retriever(embedding_model_path, embedding_device)
-        self.lesson_retriever = _Bm25Only(self.lessons, [l.search_text() for l in self.lessons])
-        self.bug_retriever = _Bm25Only(self.bugbook, [b.search_text() for b in self.bugbook])
-        self.solution_retriever = _Bm25Only(self.solutions, [s.search_text() for s in self.solutions])
+        self._embedding_model = self._init_embedding_model(embedding_model_path, embedding_device)
+        self.retriever = self._build_retriever(self.records)
+        self.lesson_retriever = self._build_retriever(self.lessons)
+        self.bug_retriever = self._build_retriever(self.bugbook)
+        self.solution_retriever = self._build_retriever(self.solutions)
 
         logger.info(
             f"[Experience] Store loaded: {len(self.records)} records, {len(self.lessons)} lessons, "
@@ -153,24 +156,51 @@ class ExperienceStore:
                 kept.append(e)
         return kept
 
-    def _build_episodic_retriever(self, embedding_model_path: str, embedding_device: str):
-        texts = [r.search_text() for r in self.records]
-        if not self.records:
-            return _Bm25Only([], [])
+    def _init_embedding_model(self, embedding_model_path: str, embedding_device: str):
+        """Embedding backend chain: local model -> OpenAI API -> None (BM25-only).
+
+        The E1 v1 lesson: on offline CPU workers the local model can't load and the
+        silent BM25 fallback degraded retrieval relevance stack-wide (36%/24%/16%
+        domain-matched). Workers DO have OpenAI API access, so the API embedding
+        path is the operative one there.
+        """
+        import os
+
         if embedding_model_path:
             try:
                 from agents.memory.embedding_models import EmbeddingModel
+
+                model = EmbeddingModel(model_type="local", model_name=embedding_model_path, device=embedding_device)
+                self._retriever_backend = "local-embeddings"
+                return model
+            except Exception as e:
+                logger.warning(f"[Experience] Local embedding model unavailable ({e}); trying OpenAI API embeddings")
+        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("MLEVOLVE_CODE_API_KEY")
+        if embedding_model_path and api_key:
+            try:
+                from agents.memory.embedding_models import EmbeddingModel
+
+                model = EmbeddingModel(model_type="openai", model_name="text-embedding-3-small", api_key=api_key)
+                model.encode(["probe"])  # verify the API path actually works before committing to it
+                self._retriever_backend = "openai-embeddings"
+                return model
+            except Exception as e:
+                logger.warning(f"[Experience] OpenAI embedding fallback unavailable ({e}); using BM25-only")
+        self._retriever_backend = "bm25-only"
+        return None
+
+    def _build_retriever(self, entries: List[Any]):
+        texts = [e.search_text() for e in entries]
+        if entries and self._embedding_model is not None:
+            try:
                 from agents.memory.retriever import HybridRetriever
 
-                embedding_model = EmbeddingModel(
-                    model_type="local", model_name=embedding_model_path, device=embedding_device,
-                )
-                retriever = HybridRetriever(embedding_model)
-                retriever.build_index(self.records, texts)
+                retriever = HybridRetriever(self._embedding_model)
+                retriever.build_index(entries, texts)
                 return retriever
             except Exception as e:
-                logger.warning(f"[Experience] Embedding retriever unavailable ({e}); falling back to BM25-only")
-        return _Bm25Only(self.records, texts)
+                logger.warning(f"[Experience] Hybrid retriever build failed ({e}); using BM25-only for this corpus")
+        return _Bm25Only(entries, texts)
 
     def snapshot_hash(self) -> str:
         return self._snapshot_hash
@@ -268,10 +298,23 @@ class ExperienceStore:
         return "\n".join(parts)
 
     def get_solution_guidance(self, query_text: str, context_label: str = "draft", max_chars: int = 6000) -> str:
-        """Reference pipeline from the most similar past competition (top-1)."""
+        """Reference pipeline from the most similar SAME-DOMAIN past competition (top-1).
+
+        Hard domain filter: a cross-domain pipeline is coherent-but-wrong guidance
+        that the agent tends to follow (measured in E1 v1: 0/57 domain-matched
+        references, arm B significantly below placebo). No same-domain candidate
+        means no injection at all.
+        """
         if not self.use_solutions or not self.solutions:
             return ""
-        matches = self.solution_retriever.search(query_text, top_k=1)
+        results = self.solution_retriever.search(query_text, top_k=len(self.solutions))
+        if self.current_task_domain:
+            matches = [(s, sc) for s, sc in results if s.domain == self.current_task_domain][:1]
+            if not matches:
+                self._log_injection(f"{context_label}-skipped-no-domain-match", query_text, [])
+                return ""
+        else:
+            matches = results[:1]
         self._log_injection(context_label, query_text, matches)
         if not matches:
             return ""
@@ -330,19 +373,25 @@ class ExperienceStore:
     ) -> None:
         if self.injection_log_path is None:
             return
-        retrieved = [
-            {"id": self._entry_id(e), "task_id": getattr(e, "task_id", ""), "score": round(float(s), 6)}
-            for e, s in results
-        ]
-        retrieved += [
-            {"id": l.lesson_id, "task_id": l.task_id, "score": None} for l in (lessons or [])
-        ]
+        def _item(e, s):
+            dom = getattr(e, "domain", "") or ""
+            return {
+                "id": self._entry_id(e), "task_id": getattr(e, "task_id", ""),
+                "domain": dom,
+                "domain_matched": (dom == self.current_task_domain) if (dom and self.current_task_domain) else None,
+                "score": round(float(s), 6) if s is not None else None,
+            }
+
+        retrieved = [_item(e, s) for e, s in results]
+        retrieved += [_item(l, None) for l in (lessons or [])]
         entry = {
             "timestamp": datetime.now().isoformat(),
             "context": context_label,
             "query_chars": len(query_text),
             "snapshot_hash": self._snapshot_hash,
             "current_task_id": self.current_task_id,
+            "current_task_domain": self.current_task_domain,
+            "retriever_backend": getattr(self, "_retriever_backend", "unknown"),
             "excluded_same_task": self.excluded_same_task,
             "excluded_listed": self.excluded_listed,
             "retrieved": retrieved,

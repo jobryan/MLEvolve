@@ -83,6 +83,7 @@ class ExperienceConfig:
     enabled: bool = False
     store_dir: str = ""
     task_id: str = ""
+    task_domain: str = ""   # current task's domain; gates M3 solution injection
     top_k: int = 2
     min_score: float = 0.0
     excluded_task_ids: list = field(default_factory=list)

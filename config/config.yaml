@@ -83,6 +83,7 @@ agent:
     enabled: False
     store_dir: ""            # persistent store directory, must live outside the per-run workspace
     task_id: ""              # current competition id for the leakage guard; defaults to data_dir basename
+    task_domain: ""          # current task's domain (e.g. "Tabular"); hard-gates solution-reference injection
     top_k: 2                 # records injected per outcome class (success/fail)
     min_score: 0.0
     excluded_task_ids: []    # hard-excluded competitions (e.g. the task's own fold)

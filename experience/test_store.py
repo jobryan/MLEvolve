@@ -295,6 +295,49 @@ def test_ingest_journal_fallback():
         assert len(ExperienceStore(store_dir=str(store_dir), current_task_id="other").records) == 2
 
 
+def test_solution_domain_filter_and_log_fields():
+    """F1/F3: cross-domain solution refs are never injected; logs carry domain flags."""
+    with tempfile.TemporaryDirectory() as tmp:
+        store_dir = Path(tmp) / "store"
+        log_path = Path(tmp) / "inj.jsonl"
+        (store_dir).mkdir(parents=True)
+        (store_dir / "solutions").mkdir()
+        sols = [
+            SolutionEntry(solution_id="t1/r/top1", task_id="t1", run_id="r", rank=1,
+                          metric_value=0.9, metric_maximize=True, code_file="a.py",
+                          domain="Tabular", code_head="import xgboost tabular gradient"),
+            SolutionEntry(solution_id="t2/r/top1", task_id="t2", run_id="r", rank=1,
+                          metric_value=0.8, metric_maximize=True, code_file="b.py",
+                          domain="Image Classification", code_head="import torch resnet images"),
+        ]
+        append_entries(store_dir / SOLUTIONS_FILENAME, sols)
+        (store_dir / "solutions" / "a.py").write_text("# tabular pipeline\n")
+        (store_dir / "solutions" / "b.py").write_text("# image pipeline\n")
+
+        # domain known, match exists -> only same-domain injected even if other scores higher lexically
+        s = ExperienceStore(store_dir=str(store_dir), current_task_id="zzz",
+                            current_task_domain="Tabular", injection_log_path=log_path)
+        g = s.get_solution_guidance("torch resnet images convnet")  # lexically favors the image entry
+        assert "tabular" in g and "image pipeline" not in g
+
+        # domain known, NO match -> skip entirely
+        s2 = ExperienceStore(store_dir=str(store_dir), current_task_id="zzz",
+                             current_task_domain="Audio Classification", injection_log_path=log_path)
+        assert s2.get_solution_guidance("any query") == ""
+
+        entries = [json.loads(l) for l in log_path.read_text().splitlines()]
+        assert any(e["context"].endswith("skipped-no-domain-match") for e in entries)
+        matched_entry = next(e for e in entries if e["retrieved"])
+        assert matched_entry["retrieved"][0]["domain"] == "Tabular"
+        assert matched_entry["retrieved"][0]["domain_matched"] is True
+        assert matched_entry["current_task_domain"] == "Tabular"
+        assert matched_entry["retriever_backend"] == "bm25-only"
+
+        # legacy behavior: unknown domain -> best lexical match still served
+        s3 = ExperienceStore(store_dir=str(store_dir), current_task_id="zzz")
+        assert s3.get_solution_guidance("torch resnet images convnet") != ""
+
+
 def test_placebo_store():
     from .placebo import build_placebo, derangement
     import random
@@ -354,6 +397,7 @@ if __name__ == "__main__":
         test_snapshot_hash_covers_all_store_files,
         test_ingest_with_bugbook_and_solutions,
         test_ingest_journal_fallback,
+        test_solution_domain_filter_and_log_fields,
         test_placebo_store,
     ):
         fn()

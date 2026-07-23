@@ -143,6 +143,7 @@ def build_manifest(
         opposite = "fold_b" if own_fold == "fold_a" else "fold_a"
         overrides["agent.experience.store_dir"] = WORKER_STORE_DIR
         overrides["agent.experience.task_id"] = task_id
+        overrides["agent.experience.task_domain"] = task["domain"]
         overrides["agent.experience.excluded_task_ids"] = list(folds[own_fold])
         runtime_controls["store_uri"] = store_uris[opposite]
         runtime_controls["store_snapshot"] = store_snapshots[opposite]
